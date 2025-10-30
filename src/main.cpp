@@ -8,12 +8,19 @@ QueueHandle_t sensors_queue;
 
 #define QUEUE_LENGTH 5
 
-#define IR_NUM 4 //Number of IR sensors use
+#define SENSORS_NUM 4 //Number of sensors used
+
+// pin definitions
+#define IR_1 1
+#define IR_2 2
+#define IR_3 3
+#define IR_4 4
+
 
 
 void setup() {
-    // ======= Motors ======= //
-    sensors_queue = xQueueCreate( QUEUE_LENGTH , sizeof(float)*IR_NUM );
+    // ======= Sensors ======= //
+    sensors_queue = xQueueCreate( QUEUE_LENGTH , sizeof(float)*SENSORS_NUM );
     xTaskCreatePinnedToCore(Sensors_Task,      // Function name
                  "Sensors_Task",   // Task name
                  1024,            // Stack size in words (Word = 4 bytes)
@@ -31,25 +38,19 @@ void loop() {
 
 void Sensors_Task(void* pvParameters) {
     // TODO
-    // Create the code that takes values from a queue and execute those values on the motors
-    // The number of motors is 4 but each two is wired together so the number of motors you can control is 2
-    // The values are in the from of x and y values use these values to determine the speed of the two motors
-    // Use a library to manage the motors dsend any signals yourself just use the library
-    // You objective is to use the x and y values to change the speed of the motors.
-
-    // Examples
-    // x = 100 means move forward at full speed -100 means backwards
-    // if y = 100 and x = 0 that means rotate around it axis clockwise ie. motors run in opposite directions
-    // y = -100 counter clockwise
+    // Create the code that wrtites values to a queue
+    // The values should be written as a distance value in cm
+    // there are IR and ultrasonic sensors in use.
+    // use #define to give every member of the array a name to make it easy
 
     while (true)
     {
-        float ir_values[IR_NUM];
+        float sensors_values[SENSORS_NUM];
     
         // TODO Take values from the sensors and store them in the values array (NOTE: This while loop is equivalent to void loop)
         // NOTE: stack size = 4K byte
 
-        xQueueSend(sensors_queue, ir_values, portMAX_DELAY);
+        xQueueSend(sensors_queue, sensors_values, portMAX_DELAY);
     }
     
 
