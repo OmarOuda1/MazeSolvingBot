@@ -1,7 +1,7 @@
 #include <Arduino.h>
 
 // ======= Sensors ======= //
-void Sensors_Task(void*);
+void Maze_Solving_Task(void*);
 
 TaskHandle_t maze_solving_task;
 
