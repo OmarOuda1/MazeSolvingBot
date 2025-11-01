@@ -87,7 +87,8 @@ void Maze_Solving_Task(void* pvParameters) {
     while (true)
     {
         // NOTE: stack size = 8K byte
-
+    }
+}
 void Motors_Task(void* pvParameters) {
     // TODO
     // Create the code that takes values from a queue and execute those values on the motors
