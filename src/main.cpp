@@ -1,4 +1,12 @@
 #include <Arduino.h>
+#include <WiFi.h>
+#include <WebSocketsServer.h>
+#include <ArduinoJson.h>
+
+const char *ssid = "ESP32-Robot-Controller";
+const char *password = "1234567-8";
+bool isSolving; 
+int maxSpeed = 50;
 
 // ======= MazeSolving ======= //
 #include <NewPing.h>
@@ -62,18 +70,31 @@ L293D rightmotor(IN1_A,IN2_A,EN_A,0);
 L293D leftmotor(IN3_B,IN4_B,EN_B,1);
 
 
+// ======= WebSocket ======= //
+
+WebSocketsServer webSocket = WebSocketsServer(81);
+void handleSettings(String payload); 
+void handleRC(String payload); 
+void handleStartSolving(String mazeName); 
+void sendSolution(); 
+void handleLoadMaze(String mazeSolution); 
+void handleAbort(); 
+void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length); 
 
 void setup() {
+    // ======= WebSocket ======= //
+
     // ======= Sensors ======= //
     // sensors_queue = xQueueCreate( QUEUE_LENGTH , sizeof(float)*SENSORS_NUM );
     xTaskCreatePinnedToCore(Maze_Solving_Task,      // Function name
                  "Maze_Solving_Task",   // Task name
-                 2048,            // Stack size in words (Word = 4 bytes)
+                 4096,            // Stack size in words (Word = 4 bytes)
                  NULL,            // Task parameters
                  2,               // Task priority (From 0 to 24)
                  &maze_solving_task,     // Pointer to task handle
                  APP_CPU_NUM
                 );
+    vTaskSuspend(maze_solving_task);
 
     pinMode(RIGHT_IR,INPUT);
     pinMode(LEFT_IR,INPUT);
@@ -117,9 +138,17 @@ String Solve_Junction(float right,float left,float front) {
     }
 }
 
-void Move_Radius(char Direction,int val) {
-    point cmd;
+void Move_Radius(char Direction,int val,point* cmd) {
     
+    switch (Direction)
+    {
+    case 'R':
+        cmd->y  = val;
+        break;
+    case 'L':
+        cmd->y  = -val;
+        break;
+    }
     xQueueSend(motors_queue, &cmd, portMAX_DELAY);
 }
 
@@ -131,6 +160,7 @@ void Maze_Solving_Task(void* pvParameters) {
     // then trigger maze solving logic on junctions and store these decitions in a string so it can be reduced later
     // LSRB
 
+    point cmd;    
     while (true)
     {
         // NOTE: stack size = 8K byte
@@ -139,10 +169,26 @@ void Maze_Solving_Task(void* pvParameters) {
         float left_val = analogRead(LEFT_IR);
         float right_val = analogRead(LEFT_IR);
         float front_val = front_ultra.ping_cm();
+        if (front_val < MIN_DISTANCE) {
+            cmd.x = 0;
+        }
         if (right_val > MAX_DISTANCE_IR || left_val > MAX_DISTANCE_IR || front_val < MIN_DISTANCE) {
-            
-            path += Solve_Junction(right_val,left_val,front_val); 
-            Move_Radius('L',5);
+            String next;
+            next = Solve_Junction(right_val,left_val,front_val); 
+            path += next;
+            if (next == "S") {
+                //TODO add motor base speed here
+                //TODO send motors value to the Queue
+            }else if (next == "B")  {
+                //TODO rotate 180°   
+            }
+            else {
+                char direction = *next.c_str();
+                Move_Radius(direction,5,&cmd);
+            }
+        }
+        else {
+            //PID
         }
     }
 }
@@ -167,8 +213,8 @@ void Motors_Task(void* pvParameters) {
 
         // TODO move motors (NOTE: This while loop is equivalent to void loop)
         // NOTE: stack size = 4K byte
-        int leftSpeed = cmd.x - cmd.y;
-        int rightSpeed = cmd.x + cmd.y;
+        int leftSpeed = cmd.x + cmd.y;
+        int rightSpeed = cmd.x - cmd.y;
 
         leftmotor.SetMotorSpeed(leftSpeed);
         rightmotor.SetMotorSpeed(rightSpeed);
@@ -176,4 +222,97 @@ void Motors_Task(void* pvParameters) {
     
 
 
+}
+
+void handleSettings(String payload) {
+    StaticJsonDocument<200> doc;
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (error) {
+        Serial.print(F("deserializeJson() failed: "));
+        Serial.println(error.f_str());
+        return;
+    }
+
+    maxSpeed = doc["max_speed"];
+    Kp = doc["kp"];
+    Ki = doc["ki"];
+    Kd = doc["kd"];
+
+    Serial.printf("Settings updated: max_speed=%d, Kp=%.2f, Ki=%.2f, Kd=%.2f\n", maxSpeed, Kp, Ki, Kd);
+}
+
+void handleRC(String payload) {
+    int commaIndex = payload.indexOf(',');
+    if (commaIndex != -1) {
+        int x = payload.substring(0, commaIndex).toInt();
+        int y = payload.substring(commaIndex + 1).toInt();
+        Serial.printf("RC command: x=%d, y=%d\n", x, y);
+        // Add motor control logic here
+    }
+}
+
+void handleStartSolving(String mazeName) {
+    Serial.printf("Start solving command received for maze: %s\n", mazeName.c_str());
+    isSolving = true;
+    vTaskResume(maze_solving_task);
+}
+void sendSolution() {
+    // if (!isSolving) {
+    //     String message = "maze_solution:" + mazeName + ";" + path;
+    //     webSocket.broadcastTXT(message);        
+    // }
+}
+
+void handleLoadMaze(String mazeSolution) {
+    Serial.printf("Load maze command received with solution: %s\n", mazeSolution.c_str());
+    // Add logic to execute the maze solution
+}
+
+void handleAbort() {
+    Serial.println("Abort command received");
+    isSolving = false;
+    // Add any other necessary cleanup or motor stop logic here
+}
+
+void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
+    switch (type) {
+        case WStype_DISCONNECTED:
+            Serial.printf("[%u] Disconnected!\n", num);
+            break;
+        case WStype_CONNECTED: {
+            IPAddress ip = webSocket.remoteIP(num);
+            Serial.printf("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
+            break;
+        }
+        case WStype_TEXT: {
+            Serial.printf("[%u] get Text: %s\n", num, payload);
+            String message = String((char *)payload);
+            int colonIndex = message.indexOf(':');
+            String command = (colonIndex != -1) ? message.substring(0, colonIndex) : message;
+            String data = (colonIndex != -1) ? message.substring(colonIndex + 1) : "";
+
+            if (command == "rc") {
+                handleRC(data);
+            } else if (command == "start_solving") {
+                handleStartSolving(data);
+            } else if (command == "load_maze") {
+                handleLoadMaze(data);
+            } else if (command == "abort") {
+                handleAbort();
+            } else if (command == "settings") {
+                handleSettings(data);
+            } else {
+                Serial.println("Unknown command received");
+            }
+            break;
+        }
+        case WStype_BIN:
+        case WStype_ERROR:
+        case WStype_FRAGMENT_TEXT_START:
+        case WStype_FRAGMENT_BIN_START:
+        case WStype_FRAGMENT:
+        case WStype_FRAGMENT_FIN:
+            break;
+    }
 }
