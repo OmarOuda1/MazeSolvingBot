@@ -1,18 +1,34 @@
 #include <Arduino.h>
 
-// ======= Sensors ======= //
+// ======= MazeSolving ======= //
+#include <NewPing.h>
 void Maze_Solving_Task(void*);
 
 TaskHandle_t maze_solving_task;
 
 #define SENSORS_NUM 4 //Number of sensors used
+#define MAX_DISTANCE_IR 100
+#define MIN_DISTANCE 2
 
 // pin definitions
 // Rename the sensors and change pin numbers
-#define IR_1 1
-#define IR_2 2
-#define IR_3 3
-#define IR_4 4
+#define RIGHT_IR 1
+#define LEFT_IR 2
+#define TRIG 5
+#define ECHO 18
+#define MAX_DISTANCE 200
+
+NewPing front_ultra(TRIG, ECHO, MAX_DISTANCE);
+
+String path = "";
+
+// ======= PID ======= //
+#include <PID_v1.h>
+double Setpoint = 0, Input, Output;
+
+double Kp=2, Ki=5, Kd=1;
+PID Wall_PID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+
 
 // ======= Motors ======= //
 #include <L293D.h>
@@ -25,8 +41,8 @@ QueueHandle_t motors_queue;
 
 struct point
 {
-    int8_t x;
-    int8_t y;
+    int8_t x = 0;
+    int8_t y = 0;
 };
 
 
@@ -59,6 +75,9 @@ void setup() {
                  APP_CPU_NUM
                 );
 
+    pinMode(RIGHT_IR,INPUT);
+    pinMode(LEFT_IR,INPUT);
+
 // ======= Motors ======= //
     motors_queue = xQueueCreate( QUEUE_SIZE , sizeof(point) );
     xTaskCreatePinnedToCore(Motors_Task,     // Function name
@@ -69,11 +88,39 @@ void setup() {
                             &motors_task ,   // Pointer to task handle
                             APP_CPU_NUM      // Core number
                             );
+    
+    leftmotor.begin(true, PWM_MOTOR_FREQUENCY, PWM_MOTOR_RESOLUTION);
+    rightmotor.begin(true, PWM_MOTOR_FREQUENCY, PWM_MOTOR_RESOLUTION);
+
+    leftmotor.SetMotorSpeed(0);
+    rightmotor.SetMotorSpeed(0);
+
   
 }
 
 void loop() {
 
+}
+
+String Solve_Junction(float right,float left,float front) {
+    if (right > MAX_DISTANCE_IR) {
+        return "R";
+    }
+    else if (front > MIN_DISTANCE) {
+        return "S";
+    }
+    else if (left > MAX_DISTANCE_IR) {
+        return "L";
+    }
+    else {
+        return "B";
+    }
+}
+
+void Move_Radius(char Direction,int val) {
+    point cmd;
+    
+    xQueueSend(motors_queue, &cmd, portMAX_DELAY);
 }
 
 void Maze_Solving_Task(void* pvParameters) {
@@ -82,11 +129,21 @@ void Maze_Solving_Task(void* pvParameters) {
     // there are IR and ultrasonic sensors in use.
     // Read sensors values and implement the PID code to not hit the walls
     // then trigger maze solving logic on junctions and store these decitions in a string so it can be reduced later
-    //
+    // LSRB
 
     while (true)
     {
         // NOTE: stack size = 8K byte
+
+        // read sensors 
+        float left_val = analogRead(LEFT_IR);
+        float right_val = analogRead(LEFT_IR);
+        float front_val = front_ultra.ping_cm();
+        if (right_val > MAX_DISTANCE_IR || left_val > MAX_DISTANCE_IR || front_val < MIN_DISTANCE) {
+            
+            path += Solve_Junction(right_val,left_val,front_val); 
+            Move_Radius('L',5);
+        }
     }
 }
 void Motors_Task(void* pvParameters) {
@@ -110,6 +167,11 @@ void Motors_Task(void* pvParameters) {
 
         // TODO move motors (NOTE: This while loop is equivalent to void loop)
         // NOTE: stack size = 4K byte
+        int leftSpeed = cmd.x - cmd.y;
+        int rightSpeed = cmd.x + cmd.y;
+
+        leftmotor.SetMotorSpeed(leftSpeed);
+        rightmotor.SetMotorSpeed(rightSpeed);
     }
     
 
