@@ -99,6 +99,9 @@ void setup() {
     pinMode(RIGHT_IR,INPUT);
     pinMode(LEFT_IR,INPUT);
 
+    Wall_PID.SetOutputLimits(-maxSpeed, maxSpeed);
+    Wall_PID.SetMode(AUTOMATIC);
+
 // ======= Motors ======= //
     motors_queue = xQueueCreate( QUEUE_SIZE , sizeof(point) );
     xTaskCreatePinnedToCore(Motors_Task,     // Function name
@@ -177,12 +180,20 @@ void Maze_Solving_Task(void* pvParameters) {
         // NOTE: stack size = 8K byte
 
         // read sensors 
-        uint8_t sensors_state = 0;
-        sensors_state |= (analogRead(RIGHT_IR) < MAX_DISTANCE_IR) ? (1 << 0) : 0;
-        sensors_state |= (analogRead(LEFT_IR) < MAX_DISTANCE_IR) ? (1 << 1) : 0;
-        sensors_state |= (front_ultra.ping_cm() < MIN_DISTANCE) ? (1 << 2) : 0;
+        int left_ir = analogRead(LEFT_IR);
+        int right_ir = analogRead(RIGHT_IR);
+        float front_us = front_ultra.ping_cm();
 
-        if (!(sensors_state & (1 << 0)) || !(sensors_state & (1 << 1)) || (sensors_state & (1 << 2))) {
+        uint8_t sensors_state = 0;
+        sensors_state |= (right_ir < MAX_DISTANCE_IR) ? (1 << 0) : 0;
+        sensors_state |= (left_ir < MAX_DISTANCE_IR) ? (1 << 1) : 0;
+        sensors_state |= (front_us < MIN_DISTANCE) ? (1 << 2) : 0;
+
+        bool isRightOpen = !(sensors_state & (1 << 0));
+        bool isLeftOpen = !(sensors_state & (1 << 1));
+        bool isFrontBlocked = (sensors_state & (1 << 2));
+
+        if (isRightOpen || isLeftOpen || isFrontBlocked) {
             String next;
             next = Solve_Junction_Bits(sensors_state);
             path += next;
@@ -192,11 +203,16 @@ void Maze_Solving_Task(void* pvParameters) {
             } else if (next == "B") {
                 //TODO rotate 180°
             } else {
-                char direction = *next.c_str();
+                char direction = next.charAt(0);
                 Move_Radius(direction, 5, &cmd);
             }
         } else {
             //PID
+            Input = left_ir - right_ir;
+            Wall_PID.Compute();
+            cmd.x = maxSpeed;
+            cmd.y = Output;
+            xQueueSend(motors_queue, &cmd, portMAX_DELAY);
         }
     }
 }
