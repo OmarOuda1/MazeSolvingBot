@@ -202,13 +202,15 @@ void Maze_Solving_Task(void* pvParameters) {
                 char direction = next.charAt(0);
                 Move_Radius(direction, 5, &cmd);
             }
-        } else {
+        } else if (sensors_state == 2){
             //PID
             Input = left_ir - right_ir;
             Wall_PID.Compute();
             cmd.x = maxSpeed;
             cmd.y = Output;
             xQueueSend(motors_queue, &cmd, portMAX_DELAY);
+        } else {
+            // solve junction without storing the result
         }
     }
 }
