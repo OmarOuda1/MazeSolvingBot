@@ -189,8 +189,11 @@ void Maze_Solving_Task(void* pvParameters) {
         sensors_state |= (left_ir < MAX_DISTANCE_IR) ? (1 << 1) : 0;
         sensors_state |= (front_us < MIN_DISTANCE) ? (1 << 2) : 0;
 
+        bool isRightOpen = !(sensors_state & (1 << 0));
+        bool isLeftOpen = !(sensors_state & (1 << 1));
+        bool isFrontBlocked = (sensors_state & (1 << 2));
 
-        if ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3) ) {
+        if (isRightOpen || isLeftOpen || isFrontBlocked) {
             String next;
             next = Solve_Junction_Bits(sensors_state);
             path += next;
@@ -259,6 +262,9 @@ void handleSettings(String payload) {
     Kp = doc["kp"];
     Ki = doc["ki"];
     Kd = doc["kd"];
+
+    Wall_PID.SetTunings(Kp, Ki, Kd);
+    Wall_PID.SetOutputLimits(-maxSpeed, maxSpeed);
 
     Serial.printf("Settings updated: max_speed=%d, Kp=%.2f, Ki=%.2f, Kd=%.2f\n", maxSpeed, Kp, Ki, Kd);
 }
