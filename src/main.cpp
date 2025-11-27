@@ -99,6 +99,9 @@ void setup() {
     pinMode(RIGHT_IR,INPUT);
     pinMode(LEFT_IR,INPUT);
 
+    Wall_PID.SetOutputLimits(-maxSpeed, maxSpeed);
+    Wall_PID.SetMode(AUTOMATIC);
+
 // ======= Motors ======= //
     motors_queue = xQueueCreate( QUEUE_SIZE , sizeof(point) );
     xTaskCreatePinnedToCore(Motors_Task,     // Function name
@@ -123,20 +126,31 @@ void loop() {
 
 }
 
-String Solve_Junction(float right,float left,float front) {
-    if (right > MAX_DISTANCE_IR) {
-        return "R";
-    }
-    else if (front > MIN_DISTANCE) {
+String Solve_Junction_Bits(uint8_t sensors_state) {
+    // bit 2:Front, bit 1:Left, bit 0:Right
+    switch (sensors_state)
+    {
+    case 0: // 000 no walls
+        return "R"; // turn right to find a wall
+    case 1: // 001 wall to the right
+        return "S"; // go straight
+    case 2: // 010 wall to the left
+        return "R"; // turn right
+    case 3: // 011 wall to the left and right
+        return "S"; // go straight
+    case 4: // 100 wall to the front
+        return "R"; // turn right
+    case 5: // 101 wall to the front and right
+        return "L"; // go left
+    case 6: // 110 wall to the front and left
+        return "R"; // turn right
+    case 7: // 111 all walls
+        return "B"; // go back
+    default:
         return "S";
     }
-    else if (left > MAX_DISTANCE_IR) {
-        return "L";
-    }
-    else {
-        return "B";
-    }
 }
+
 
 void Move_Radius(char Direction,int val,point* cmd) {
     
@@ -166,29 +180,39 @@ void Maze_Solving_Task(void* pvParameters) {
         // NOTE: stack size = 8K byte
 
         // read sensors 
-        float left_val = analogRead(LEFT_IR);
-        float right_val = analogRead(LEFT_IR);
-        float front_val = front_ultra.ping_cm();
-        if (front_val < MIN_DISTANCE) {
-            cmd.x = 0;
-        }
-        if (right_val > MAX_DISTANCE_IR || left_val > MAX_DISTANCE_IR || front_val < MIN_DISTANCE) {
+        int left_ir = analogRead(LEFT_IR);
+        int right_ir = analogRead(RIGHT_IR);
+        float front_us = front_ultra.ping_cm();
+
+        uint8_t sensors_state = 0;
+        sensors_state |= (right_ir < MAX_DISTANCE_IR) ? (1 << 0) : 0;
+        sensors_state |= (left_ir < MAX_DISTANCE_IR) ? (1 << 1) : 0;
+        sensors_state |= (front_us < MIN_DISTANCE) ? (1 << 2) : 0;
+
+        bool isRightOpen = !(sensors_state & (1 << 0));
+        bool isLeftOpen = !(sensors_state & (1 << 1));
+        bool isFrontBlocked = (sensors_state & (1 << 2));
+
+        if (isRightOpen || isLeftOpen || isFrontBlocked) {
             String next;
-            next = Solve_Junction(right_val,left_val,front_val); 
+            next = Solve_Junction_Bits(sensors_state);
             path += next;
             if (next == "S") {
                 //TODO add motor base speed here
                 //TODO send motors value to the Queue
-            }else if (next == "B")  {
-                //TODO rotate 180°   
+            } else if (next == "B") {
+                //TODO rotate 180°
+            } else {
+                char direction = next.charAt(0);
+                Move_Radius(direction, 5, &cmd);
             }
-            else {
-                char direction = *next.c_str();
-                Move_Radius(direction,5,&cmd);
-            }
-        }
-        else {
+        } else {
             //PID
+            Input = left_ir - right_ir;
+            Wall_PID.Compute();
+            cmd.x = maxSpeed;
+            cmd.y = Output;
+            xQueueSend(motors_queue, &cmd, portMAX_DELAY);
         }
     }
 }
@@ -238,6 +262,9 @@ void handleSettings(String payload) {
     Kp = doc["kp"];
     Ki = doc["ki"];
     Kd = doc["kd"];
+
+    Wall_PID.SetTunings(Kp, Ki, Kd);
+    Wall_PID.SetOutputLimits(-maxSpeed, maxSpeed);
 
     Serial.printf("Settings updated: max_speed=%d, Kp=%.2f, Ki=%.2f, Kd=%.2f\n", maxSpeed, Kp, Ki, Kd);
 }
