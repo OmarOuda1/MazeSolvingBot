@@ -2,11 +2,17 @@
 #include <WiFi.h>
 #include <WebSocketsServer.h>
 #include <ArduinoJson.h>
+#include <WebServer.h>
+#include <SPIFFS.h>
 
 const char *ssid = "ESP32-Robot-Controller";
 const char *password = "1234567-8";
-bool isSolving; 
+bool isSolving = false;
 int maxSpeed = 50;
+String currentMazeName = "";
+String replayPath = "";
+bool isReplaying = false;
+int replayIndex = 0;
 
 // ======= MazeSolving ======= //
 #include <NewPing.h>
@@ -70,9 +76,10 @@ L293D rightmotor(IN1_A,IN2_A,EN_A,0);
 L293D leftmotor(IN3_B,IN4_B,EN_B,1);
 
 
-// ======= WebSocket ======= //
-
+// ======= Web Server & WebSocket ======= //
+WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
+
 void handleSettings(String payload); 
 void handleRC(String payload); 
 void handleStartSolving(String mazeName); 
@@ -81,28 +88,22 @@ void handleLoadMaze(String mazeSolution);
 void handleAbort(); 
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length); 
 
+// ======= Function Prototypes ======= //
+String Solve_Junction_Bits(uint8_t sensors_state);
+void Perform_Turn(char direction, int duration, point* cmd);
+
 void setup() {
-    // ======= WebSocket ======= //
+    Serial.begin(115200);
+    delay(100);
 
     // ======= Sensors ======= //
-    // sensors_queue = xQueueCreate( QUEUE_LENGTH , sizeof(float)*SENSORS_NUM );
-    xTaskCreatePinnedToCore(Maze_Solving_Task,      // Function name
-                 "Maze_Solving_Task",   // Task name
-                 4096,            // Stack size in words (Word = 4 bytes)
-                 NULL,            // Task parameters
-                 2,               // Task priority (From 0 to 24)
-                 &maze_solving_task,     // Pointer to task handle
-                 APP_CPU_NUM
-                );
-    vTaskSuspend(maze_solving_task);
-
     pinMode(RIGHT_IR,INPUT);
     pinMode(LEFT_IR,INPUT);
 
     Wall_PID.SetOutputLimits(-maxSpeed, maxSpeed);
     Wall_PID.SetMode(AUTOMATIC);
 
-// ======= Motors ======= //
+    // ======= Motors ======= //
     motors_queue = xQueueCreate( QUEUE_SIZE , sizeof(point) );
     xTaskCreatePinnedToCore(Motors_Task,     // Function name
                             "Motors_Task",   // Task name
@@ -119,11 +120,42 @@ void setup() {
     leftmotor.SetMotorSpeed(0);
     rightmotor.SetMotorSpeed(0);
 
-  
+    // ======= WiFi & Server ======= //
+    WiFi.softAP(ssid, password);
+    IPAddress myIP = WiFi.softAPIP();
+    Serial.print("AP IP address: ");
+    Serial.println(myIP);
+
+    if(!SPIFFS.begin(true)){
+        Serial.println("An Error has occurred while mounting SPIFFS");
+        return;
+    }
+
+    server.serveStatic("/", SPIFFS, "/index.html");
+    server.serveStatic("/style.css", SPIFFS, "/style.css");
+    server.serveStatic("/script.js", SPIFFS, "/script.js");
+    server.serveStatic("/vendor", SPIFFS, "/vendor");
+    server.serveStatic("/fonts", SPIFFS, "/fonts");
+
+    server.begin();
+    webSocket.begin();
+    webSocket.onEvent(onWebSocketEvent);
+
+    // ======= Tasks ======= //
+    xTaskCreatePinnedToCore(Maze_Solving_Task,      // Function name
+                 "Maze_Solving_Task",   // Task name
+                 4096,            // Stack size in words (Word = 4 bytes)
+                 NULL,            // Task parameters
+                 2,               // Task priority (From 0 to 24)
+                 &maze_solving_task,     // Pointer to task handle
+                 APP_CPU_NUM
+                );
+    vTaskSuspend(maze_solving_task);
 }
 
 void loop() {
-
+    webSocket.loop();
+    server.handleClient();
 }
 
 String Solve_Junction_Bits(uint8_t sensors_state) {
@@ -162,9 +194,7 @@ void Perform_Turn(char direction, int duration, point* cmd) {
     // 2. Turn: Spot turn (rotate in place)
     cmd->x = 0;
     if (direction == 'R') {
-        cmd->y = maxSpeed; // Positive for Right (assuming Right Motor is forward, Left back? Logic in Motors_Task: L=x+y, R=x-y. If y>0, L>R. So Turn Right)
-        // Wait: LeftSpeed = 0 + 50 = 50. RightSpeed = 0 - 50 = -50.
-        // Left Fwd, Right Bwd -> Turns Right. Correct.
+        cmd->y = maxSpeed;
     } else if (direction == 'L') {
         cmd->y = -maxSpeed; // Left Turn
     }
@@ -201,11 +231,45 @@ void Maze_Solving_Task(void* pvParameters) {
         sensors_state |= (left_ir < MAX_DISTANCE_IR) ? (1 << 1) : 0;
         sensors_state |= (front_us < MIN_DISTANCE) ? (1 << 2) : 0;
 
-        String next = Solve_Junction_Bits(sensors_state);
+        String next = "";
+        bool atJunction = false;
 
-        // Update path only if junction condition is met and action is not Straight (to prevent memory overflow)
-        if ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3)) {
-            path += next;
+        // Check if we are at a junction/special state (anything other than simple walls)
+        // Simplistic check: If sensors are not "Left and Right" (3) or "Left only" (2)
+        // Adjust this logic based on actual wall configurations.
+        // Original logic was: ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3))
+        // Which is weird. Let's assume junction is when front wall exists OR no walls OR ...
+        // For Replay, we need to detect the decision point.
+        // Let's rely on the exploration logic's junction detection for consistency.
+
+        if (isReplaying) {
+             // In Replay Mode, we follow the path string
+             // We need to detect when we are at a junction.
+             // Assuming Solve_Junction_Bits correctly identifies junction situations vs straight.
+             String potential_move = Solve_Junction_Bits(sensors_state);
+
+             if (potential_move != "S") {
+                 // We are at a decision point (or end of corridor)
+                 if (replayIndex < replayPath.length()) {
+                     char move = replayPath.charAt(replayIndex++);
+                     next = String(move);
+                 } else {
+                     // Path finished
+                     handleAbort();
+                     continue;
+                 }
+             } else {
+                 next = "S";
+             }
+        } else {
+            // Exploration Mode
+            next = Solve_Junction_Bits(sensors_state);
+
+            // Update path only if junction condition is met and action is not Straight (to prevent memory overflow)
+            // Storing non-straight moves is a common optimization (straight is implicit)
+            if (next != "S") {
+                path += next;
+            }
         }
 
         if (next == "S") {
@@ -224,6 +288,10 @@ void Maze_Solving_Task(void* pvParameters) {
             char direction = next.charAt(0);
             Perform_Turn(direction, 300, &cmd);
         }
+
+        // Check for end of maze condition (e.g., specific sensor pattern or manual stop)
+        // If exploring and done, send solution
+        // For now, assume user stops it or we add a specific condition later.
 
         // Small delay to prevent CPU hogging and queue flooding
         vTaskDelay(10 / portTICK_PERIOD_MS);
@@ -283,36 +351,66 @@ void handleSettings(String payload) {
 }
 
 void handleRC(String payload) {
+    // If we are solving, stop it first to take manual control
+    if (isSolving) {
+        vTaskSuspend(maze_solving_task);
+        isSolving = false;
+        Serial.println("Paused solving for RC");
+    }
+
     int commaIndex = payload.indexOf(',');
     if (commaIndex != -1) {
         int x = payload.substring(0, commaIndex).toInt();
         int y = payload.substring(commaIndex + 1).toInt();
-        Serial.printf("RC command: x=%d, y=%d\n", x, y);
-        // Add motor control logic here
+        // Serial.printf("RC command: x=%d, y=%d\n", x, y);
+
+        point cmd;
+        cmd.x = x;
+        cmd.y = y;
+        xQueueSend(motors_queue, &cmd, portMAX_DELAY);
     }
 }
 
 void handleStartSolving(String mazeName) {
     Serial.printf("Start solving command received for maze: %s\n", mazeName.c_str());
+    currentMazeName = mazeName;
+    path = "";
     isSolving = true;
+    isReplaying = false;
     vTaskResume(maze_solving_task);
 }
+
 void sendSolution() {
-    // if (!isSolving) {
-    //     String message = "maze_solution:" + mazeName + ";" + path;
-    //     webSocket.broadcastTXT(message);        
-    // }
+     if (isSolving && !isReplaying && path.length() > 0) {
+         String message = "maze_solution:" + currentMazeName + ";" + path;
+         webSocket.broadcastTXT(message);
+         Serial.println("Sent solution: " + message);
+     }
 }
 
 void handleLoadMaze(String mazeSolution) {
     Serial.printf("Load maze command received with solution: %s\n", mazeSolution.c_str());
-    // Add logic to execute the maze solution
+    replayPath = mazeSolution;
+    replayIndex = 0;
+    isReplaying = true;
+    isSolving = true;
+    vTaskResume(maze_solving_task);
 }
 
 void handleAbort() {
     Serial.println("Abort command received");
     isSolving = false;
-    // Add any other necessary cleanup or motor stop logic here
+    isReplaying = false;
+    vTaskSuspend(maze_solving_task);
+
+    // Stop motors
+    point cmd = {0, 0};
+    xQueueSend(motors_queue, &cmd, portMAX_DELAY);
+
+    // If we aborted during exploration, we might want to send what we have,
+    // but usually abort means "stop everything".
+    // Check if we found a solution before aborting?
+    // sendSolution(); // Optional
 }
 
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
@@ -326,7 +424,7 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t lengt
             break;
         }
         case WStype_TEXT: {
-            Serial.printf("[%u] get Text: %s\n", num, payload);
+            // Serial.printf("[%u] get Text: %s\n", num, payload);
             String message = String((char *)payload);
             int colonIndex = message.indexOf(':');
             String command = (colonIndex != -1) ? message.substring(0, colonIndex) : message;
