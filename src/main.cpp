@@ -245,29 +245,25 @@ void Maze_Solving_Task(void* pvParameters) {
         if (isReplaying) {
              // In Replay Mode, we follow the path string
              // We need to detect when we are at a junction.
-             // Assuming Solve_Junction_Bits correctly identifies junction situations vs straight.
-             String potential_move = Solve_Junction_Bits(sensors_state);
-
-             if (potential_move != "S") {
-                 // We are at a decision point (or end of corridor)
-                 if (replayIndex < replayPath.length()) {
-                     char move = replayPath.charAt(replayIndex++);
-                     next = String(move);
-                 } else {
-                     // Path finished
-                     handleAbort();
-                     continue;
-                 }
-             } else {
-                 next = "S";
-             }
+            if ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3)) {
+                // We are at a decision point (or end of corridor)
+                if (replayIndex < replayPath.length()) {
+                    char move = replayPath.charAt(replayIndex++);
+                    next = String(move);
+                } else {
+                    // Path finished
+                    handleAbort();
+                    continue;
+                }
+            } else {
+                next = "S";
+            }
         } else {
             // Exploration Mode
             next = Solve_Junction_Bits(sensors_state);
 
-            // Update path only if junction condition is met and action is not Straight (to prevent memory overflow)
-            // Storing non-straight moves is a common optimization (straight is implicit)
-            if (next != "S") {
+            // Update path only if junction condition is met
+            if ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3)) {
                 path += next;
             }
         }
@@ -404,7 +400,7 @@ void handleAbort() {
     vTaskSuspend(maze_solving_task);
 
     // Stop motors
-    point cmd = {0, 0};
+    point cmd;
     xQueueSend(motors_queue, &cmd, portMAX_DELAY);
 
     // If we aborted during exploration, we might want to send what we have,
