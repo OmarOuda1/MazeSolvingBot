@@ -1,0 +1,339 @@
+:root {
+    /* CSS HEX */
+    --space-cadet: #1a1a2eff;
+    --celadon: #b3dec1ff;
+    --mint-green: #dbf9f0ff;
+    --tea-rose-red: #efc7c2ff;
+    --caribbean-current: #00635dff;
+}
+
+@font-face {
+  font-family: 'Roboto';
+  font-style: normal;
+  font-weight: 400;
+  src: url('fonts/roboto-regular.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Roboto';
+  font-style: normal;
+  font-weight: 700;
+  src: url('fonts/roboto-bold.ttf') format('truetype');
+}
+
+body {
+    font-family: 'Roboto', sans-serif;
+    background-color: var(--space-cadet);
+    color: var(--mint-green);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    margin: 0;
+}
+
+.container {
+    text-align: center;
+}
+
+.card {
+    background-color: var(--caribbean-current);
+    padding: 40px;
+    border-radius: 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    width: 350px;
+}
+
+h1 {
+    color: var(--celadon);
+    margin-bottom: 10px;
+}
+
+p {
+    margin-bottom: 30px;
+}
+
+button {
+    width: 100%;
+    padding: 15px;
+    margin-bottom: 15px;
+    border: none;
+    border-radius: 10px;
+    color: var(--space-cadet);
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: bold;
+}
+
+#rc-mode-btn {
+    background-color: transparent;
+    border: 2px solid var(--celadon);
+    color: var(--celadon);
+}
+
+#rc-mode-btn:hover {
+    background-color: var(--celadon);
+    color: var(--space-cadet);
+}
+
+
+/* Settings Modal styles */
+.setting {
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+.setting label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: bold;
+    color: var(--celadon);
+}
+
+#settings-back-btn {
+    background-color: transparent;
+    border: 2px solid var(--celadon);
+    color: var(--celadon);
+}
+
+#settings-back-btn:hover {
+    background-color: var(--celadon);
+    color: var(--space-cadet);
+}
+
+
+.chart-container {
+    margin-top: 20px;
+    height: 200px; /* Adjust as needed */
+    position: relative;
+}
+
+input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 10px;
+    background: var(--space-cadet);
+    border-radius: 5px;
+    outline: none;
+    opacity: 0.7;
+    transition: opacity .2s;
+}
+
+input[type="range"]:hover {
+    opacity: 1;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 25px;
+    height: 25px;
+    background: var(--celadon);
+    cursor: pointer;
+    border-radius: 50%;
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 25px;
+    height: 25px;
+    background: var(--celadon);
+    cursor: pointer;
+    border-radius: 50%;
+}
+
+.counter {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.counter-btn {
+    background-color: var(--celadon);
+    color: var(--space-cadet);
+    border: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    font-size: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 30px;
+    text-align: center;
+    padding: 0;
+}
+
+.counter-input {
+    width: 80px;
+    text-align: center;
+    font-size: 18px;
+    background-color: var(--space-cadet);
+    color: var(--mint-green);
+    border: 1px solid var(--celadon);
+    border-radius: 5px;
+    margin: 0 10px;
+    padding: 5px;
+}
+
+/* Hide arrows from number input */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type=number] {
+    -moz-appearance: textfield;
+}
+
+#stop-btn {
+    background-color: var(--tea-rose-red);
+}
+
+.loader {
+    border: 4px solid var(--mint-green);
+    border-radius: 50%;
+    border-top: 4px solid var(--celadon);
+    width: 30px;
+    height: 30px;
+    animation: spin 1s linear infinite;
+    margin: 20px auto 0;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+#load-maze-btn,
+#solve-maze-btn,
+#settings-btn {
+    background-color: var(--celadon);
+}
+
+
+button:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.1);
+}
+
+
+/* Modal styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0, 0, 0, 0.7);
+}
+
+.modal-content {
+    background-color: var(--caribbean-current);
+    margin: 15% auto;
+    padding: 30px;
+    border-radius: 15px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    width: 80%;
+    max-width: 400px;
+    position: relative;
+    color: var(--mint-green);
+}
+
+.close-btn {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    position: absolute;
+    top: 10px;
+    right: 20px;
+}
+
+.close-btn:hover,
+.close-btn:focus {
+    color: var(--celadon);
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.modal-content h2 {
+    color: var(--celadon);
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+#maze-list {
+    margin-bottom: 20px;
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid var(--celadon);
+    border-radius: 5px;
+    padding: 10px;
+}
+
+#maze-list .maze-item {
+    padding: 10px;
+    cursor: pointer;
+    border-radius: 5px;
+    margin-bottom: 5px;
+}
+
+#maze-list .maze-item:hover, #maze-list .maze-item.selected {
+    background-color: var(--celadon);
+    color: var(--space-cadet);
+}
+
+input[type="text"] {
+    width: calc(100% - 20px);
+    padding: 10px;
+    margin-bottom: 20px;
+    border-radius: 5px;
+    border: 1px solid var(--celadon);
+    background-color: var(--space-cadet);
+    color: var(--mint-green);
+    font-size: 16px;
+}
+
+.modal-content button {
+    background-color: var(--celadon);
+}
+
+.hidden {
+    display: none;
+}
+
+#rc-view,
+#settings-view {
+    background-color: var(--caribbean-current);
+    padding: 40px;
+    border-radius: 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    width: 350px;
+    text-align: center;
+}
+
+#joystick-container {
+    position: relative;
+    width: 200px;
+    height: 200px;
+    margin: 0 auto 30px;
+    background: var(--space-cadet);
+    border-radius: 50%;
+}
+
+#rc-back-btn {
+    background-color: transparent;
+    border: 2px solid var(--celadon);
+    color: var(--celadon);
+}
+
+#rc-back-btn:hover {
+    background-color: var(--celadon);
+    color: var(--space-cadet);
+}
