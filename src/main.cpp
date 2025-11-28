@@ -131,17 +131,17 @@ String Solve_Junction_Bits(uint8_t sensors_state) {
     switch (sensors_state)
     {
     case 0: // 000 no walls
-        return "R"; // turn right to find a wall
+        return "L"; // turn left to find a wall
     case 1: // 001 wall to the right
-        return "S"; // go straight
+        return "L"; // turn left
     case 2: // 010 wall to the left
-        return "R"; // turn right
+        return "S"; // go straight
     case 3: // 011 wall to the left and right
         return "S"; // go straight
     case 4: // 100 wall to the front
-        return "R"; // turn right
+        return "L"; // turn left
     case 5: // 101 wall to the front and right
-        return "L"; // go left
+        return "L"; // turn left
     case 6: // 110 wall to the front and left
         return "R"; // turn right
     case 7: // 111 all walls
@@ -152,18 +152,30 @@ String Solve_Junction_Bits(uint8_t sensors_state) {
 }
 
 
-void Move_Radius(char Direction,int val,point* cmd) {
-    
-    switch (Direction)
-    {
-    case 'R':
-        cmd->y  = val;
-        break;
-    case 'L':
-        cmd->y  = -val;
-        break;
+void Perform_Turn(char direction, int duration, point* cmd) {
+    // 1. Align: Move forward slightly to center wheels in junction
+    cmd->x = 40; // Moderate speed
+    cmd->y = 0;
+    xQueueSend(motors_queue, cmd, portMAX_DELAY);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
+
+    // 2. Turn: Spot turn (rotate in place)
+    cmd->x = 0;
+    if (direction == 'R') {
+        cmd->y = maxSpeed; // Positive for Right (assuming Right Motor is forward, Left back? Logic in Motors_Task: L=x+y, R=x-y. If y>0, L>R. So Turn Right)
+        // Wait: LeftSpeed = 0 + 50 = 50. RightSpeed = 0 - 50 = -50.
+        // Left Fwd, Right Bwd -> Turns Right. Correct.
+    } else if (direction == 'L') {
+        cmd->y = -maxSpeed; // Left Turn
     }
-    xQueueSend(motors_queue, &cmd, portMAX_DELAY);
+    xQueueSend(motors_queue, cmd, portMAX_DELAY);
+    vTaskDelay(duration / portTICK_PERIOD_MS);
+
+    // 3. Stop: Stabilize before resuming PID
+    cmd->x = 0;
+    cmd->y = 0;
+    xQueueSend(motors_queue, cmd, portMAX_DELAY);
+    vTaskDelay(50 / portTICK_PERIOD_MS);
 }
 
 void Maze_Solving_Task(void* pvParameters) {
@@ -189,29 +201,42 @@ void Maze_Solving_Task(void* pvParameters) {
         sensors_state |= (left_ir < MAX_DISTANCE_IR) ? (1 << 1) : 0;
         sensors_state |= (front_us < MIN_DISTANCE) ? (1 << 2) : 0;
 
-        if ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3) ) {
-            String next;
-            next = Solve_Junction_Bits(sensors_state);
-            path += next;
-            if (next == "S") {
-                //TODO add motor base speed here
-                //TODO send motors value to the Queue
-            } else if (next == "B") {
-                //TODO rotate 180°
-            } else {
-                char direction = next.charAt(0);
-                Move_Radius(direction, 5, &cmd);
+        String next = Solve_Junction_Bits(sensors_state);
+
+        // Update path only if junction condition is met and action is not Straight (to prevent memory overflow)
+        if (next != "S") {
+            if ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3)) {
+                path += next;
             }
-        } else if (sensors_state == 2){
-            //PID
-            Input = left_ir - right_ir;
+        }
+
+        if (next == "S") {
+            // PID Control
+            if (sensors_state == 3) {
+                 // Centering in corridor (both walls present)
+                 Input = left_ir - right_ir;
+                 Setpoint = 0;
+            } else {
+                 // Following left wall only
+                 // Maintain distance from left wall
+                 Input = left_ir;
+                 Setpoint = 50; // Target distance value (based on MAX_DISTANCE_IR=100 threshold)
+            }
+
             Wall_PID.Compute();
             cmd.x = maxSpeed;
             cmd.y = Output;
             xQueueSend(motors_queue, &cmd, portMAX_DELAY);
+        } else if (next == "B") {
+            // Rotate 180 (Turn Right)
+            Perform_Turn('R', 600, &cmd);
         } else {
-            // solve junction without storing the result
+            char direction = next.charAt(0);
+            Perform_Turn(direction, 300, &cmd);
         }
+
+        // Small delay to prevent CPU hogging and queue flooding
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 }
 void Motors_Task(void* pvParameters) {
