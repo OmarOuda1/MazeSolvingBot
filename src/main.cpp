@@ -131,17 +131,17 @@ String Solve_Junction_Bits(uint8_t sensors_state) {
     switch (sensors_state)
     {
     case 0: // 000 no walls
-        return "R"; // turn right to find a wall
+        return "L"; // turn left to find a wall
     case 1: // 001 wall to the right
-        return "S"; // go straight
+        return "L"; // turn left
     case 2: // 010 wall to the left
-        return "R"; // turn right
+        return "S"; // go straight
     case 3: // 011 wall to the left and right
         return "S"; // go straight
     case 4: // 100 wall to the front
-        return "R"; // turn right
+        return "L"; // turn left
     case 5: // 101 wall to the front and right
-        return "L"; // go left
+        return "L"; // turn left
     case 6: // 110 wall to the front and left
         return "R"; // turn right
     case 7: // 111 all walls
@@ -189,29 +189,40 @@ void Maze_Solving_Task(void* pvParameters) {
         sensors_state |= (left_ir < MAX_DISTANCE_IR) ? (1 << 1) : 0;
         sensors_state |= (front_us < MIN_DISTANCE) ? (1 << 2) : 0;
 
+        String next = Solve_Junction_Bits(sensors_state);
+
+        // Update path only if junction condition is met (as requested)
         if ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3) ) {
-            String next;
-            next = Solve_Junction_Bits(sensors_state);
             path += next;
-            if (next == "S") {
-                //TODO add motor base speed here
-                //TODO send motors value to the Queue
-            } else if (next == "B") {
-                //TODO rotate 180°
+        }
+
+        if (next == "S") {
+            // PID Control
+            if (sensors_state == 3) {
+                 // Centering in corridor (both walls present)
+                 Input = left_ir - right_ir;
+                 Setpoint = 0;
             } else {
-                char direction = next.charAt(0);
-                Move_Radius(direction, 5, &cmd);
+                 // Following left wall only
+                 // Maintain distance from left wall
+                 Input = left_ir;
+                 Setpoint = 50; // Target distance value (based on MAX_DISTANCE_IR=100 threshold)
             }
-        } else if (sensors_state == 2){
-            //PID
-            Input = left_ir - right_ir;
+
             Wall_PID.Compute();
             cmd.x = maxSpeed;
             cmd.y = Output;
             xQueueSend(motors_queue, &cmd, portMAX_DELAY);
+        } else if (next == "B") {
+            // Rotate 180 (Turn Right)
+            Move_Radius('R', 10, &cmd);
         } else {
-            // solve junction without storing the result
+            char direction = next.charAt(0);
+            Move_Radius(direction, 5, &cmd);
         }
+
+        // Small delay to prevent CPU hogging and queue flooding
+        vTaskDelay(10 / portTICK_PERIOD_MS);
     }
 }
 void Motors_Task(void* pvParameters) {
