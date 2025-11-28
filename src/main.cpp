@@ -204,24 +204,14 @@ void Maze_Solving_Task(void* pvParameters) {
         String next = Solve_Junction_Bits(sensors_state);
 
         // Update path only if junction condition is met and action is not Straight (to prevent memory overflow)
-        if (next != "S") {
-            if ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3)) {
-                path += next;
-            }
+        if ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3)) {
+            path += next;
         }
 
         if (next == "S") {
             // PID Control
-            if (sensors_state == 3) {
-                 // Centering in corridor (both walls present)
-                 Input = left_ir - right_ir;
-                 Setpoint = 0;
-            } else {
-                 // Following left wall only
-                 // Maintain distance from left wall
-                 Input = left_ir;
-                 Setpoint = 50; // Target distance value (based on MAX_DISTANCE_IR=100 threshold)
-            }
+            Input = left_ir - right_ir;
+            Setpoint = 0;
 
             Wall_PID.Compute();
             cmd.x = maxSpeed;
