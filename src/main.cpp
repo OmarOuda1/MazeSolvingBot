@@ -25,14 +25,26 @@ TaskHandle_t maze_solving_task;
 #define MIN_DISTANCE 2
 
 // pin definitions
-// Rename the sensors and change pin numbers
-#define RIGHT_IR 1
-#define LEFT_IR 2
-#define TRIG 5
-#define ECHO 18
+#define IR_1 36 // Left IR
+#define IR_2 39 // Right IR
+#define IR_3 34 // Not used yet
+#define IR_4 35 // Not used yet
+
+#define ECHO_1 25
+#define TRIG_1 26
+#define ECHO_2 32 // Not used yet
+#define TRIG_2 33 // Not used yet
+
+#define IN1 19
+#define IN2 18
+#define IN3 17
+#define IN4 16
+#define ENA 23
+#define ENB 4
+
 #define MAX_DISTANCE 200
 
-NewPing front_ultra(TRIG, ECHO, MAX_DISTANCE);
+NewPing front_ultra(TRIG_1, ECHO_1, MAX_DISTANCE);
 
 String path = "";
 
@@ -60,20 +72,11 @@ struct point
 };
 
 
-// Pin definition
-#define EN_A 32
-#define IN1_A 14
-#define IN2_A 27
-
-#define IN3_B 26
-#define IN4_B 25
-#define EN_B 33
-
 #define PWM_MOTOR_FREQUENCY   100 // Increase PWM frequency in the future.
 #define PWM_MOTOR_RESOLUTION    8
 
-L293D rightmotor(IN1_A,IN2_A,EN_A,0);
-L293D leftmotor(IN3_B,IN4_B,EN_B,1);
+L293D rightmotor(IN1,IN2,ENA,0);
+L293D leftmotor(IN3,IN4,ENB,1);
 
 
 // ======= Web Server & WebSocket ======= //
@@ -97,8 +100,8 @@ void setup() {
     delay(100);
 
     // ======= Sensors ======= //
-    pinMode(RIGHT_IR,INPUT);
-    pinMode(LEFT_IR,INPUT);
+    pinMode(IR_2,INPUT);
+    pinMode(IR_1,INPUT);
 
     Wall_PID.SetOutputLimits(-maxSpeed, maxSpeed);
     Wall_PID.SetMode(AUTOMATIC);
@@ -222,8 +225,8 @@ void Maze_Solving_Task(void* pvParameters) {
         // NOTE: stack size = 8K byte
 
         // read sensors 
-        int left_ir = analogRead(LEFT_IR);
-        int right_ir = analogRead(RIGHT_IR);
+        int left_ir = analogRead(IR_1);
+        int right_ir = analogRead(IR_2);
         float front_us = front_ultra.ping_cm();
 
         uint8_t sensors_state = 0;
