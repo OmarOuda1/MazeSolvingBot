@@ -92,7 +92,7 @@ void handleAbort();
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length); 
 
 // ======= Function Prototypes ======= //
-String Solve_Junction_Bits(uint8_t sensors_state);
+#include <MazeLogic.h>
 void Perform_Turn(char direction, int duration, point* cmd);
 
 void setup() {
@@ -263,7 +263,7 @@ void Maze_Solving_Task(void* pvParameters) {
             }
         } else {
             // Exploration Mode
-            next = Solve_Junction_Bits(sensors_state);
+    next = MazeLogic::Solve_Junction_Bits(sensors_state);
 
             // Update path only if junction condition is met
             if ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3)) {
@@ -349,7 +349,7 @@ void handleSettings(String payload) {
     Serial.printf("Settings updated: max_speed=%d, Kp=%.2f, Ki=%.2f, Kd=%.2f\n", maxSpeed, Kp, Ki, Kd);
 }
 
-void handleRC(String payload) {
+void handleRC(int x, int y) {
     // If we are solving, stop it first to take manual control
     if (isSolving) {
         vTaskSuspend(maze_solving_task);
@@ -357,17 +357,12 @@ void handleRC(String payload) {
         Serial.println("Paused solving for RC");
     }
 
-    int commaIndex = payload.indexOf(',');
-    if (commaIndex != -1) {
-        int x = payload.substring(0, commaIndex).toInt();
-        int y = payload.substring(commaIndex + 1).toInt();
-        // Serial.printf("RC command: x=%d, y=%d\n", x, y);
+    // Serial.printf("RC command: x=%d, y=%d\n", x, y);
 
-        point cmd;
-        cmd.x = x;
-        cmd.y = y;
-        xQueueSend(motors_queue, &cmd, portMAX_DELAY);
-    }
+    point cmd;
+    cmd.x = x;
+    cmd.y = y;
+    xQueueSend(motors_queue, &cmd, portMAX_DELAY);
 }
 
 void handleStartSolving(String mazeName) {
@@ -425,22 +420,27 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t lengt
         case WStype_TEXT: {
             // Serial.printf("[%u] get Text: %s\n", num, payload);
             String message = String((char *)payload);
-            int colonIndex = message.indexOf(':');
-            String command = (colonIndex != -1) ? message.substring(0, colonIndex) : message;
-            String data = (colonIndex != -1) ? message.substring(colonIndex + 1) : "";
+            ParsedCommand cmd = MazeLogic::parseWebSocketMessage(message);
 
-            if (command == "rc") {
-                handleRC(data);
-            } else if (command == "start_solving") {
-                handleStartSolving(data);
-            } else if (command == "load_maze") {
-                handleLoadMaze(data);
-            } else if (command == "abort") {
-                handleAbort();
-            } else if (command == "settings") {
-                handleSettings(data);
-            } else {
-                Serial.println("Unknown command received");
+            switch (cmd.type) {
+                case CMD_RC:
+                    handleRC(cmd.x, cmd.y);
+                    break;
+                case CMD_START_SOLVING:
+                    handleStartSolving(cmd.data);
+                    break;
+                case CMD_LOAD_MAZE:
+                    handleLoadMaze(cmd.data);
+                    break;
+                case CMD_ABORT:
+                    handleAbort();
+                    break;
+                case CMD_SETTINGS:
+                    handleSettings(cmd.data);
+                    break;
+                default:
+                    Serial.println("Unknown command received");
+                    break;
             }
             break;
         }
