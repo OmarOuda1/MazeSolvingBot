@@ -167,20 +167,25 @@ String Solve_Junction_Bits(uint8_t sensors_state) {
     switch (sensors_state)
     {
     case 0: // 000 no walls
+        path += "L";
         return "L"; // turn left to find a wall
     case 1: // 001 wall to the right
+        path += "L";
         return "L"; // turn left
     case 2: // 010 wall to the left
+        path += "S";
         return "S"; // go straight
     case 3: // 011 wall to the left and right
         return "S"; // go straight
     case 4: // 100 wall to the front
+        path += "L";
         return "L"; // turn left
     case 5: // 101 wall to the front and right
         return "L"; // turn left
     case 6: // 110 wall to the front and left
         return "R"; // turn right
     case 7: // 111 all walls
+        path += "B";
         return "B"; // go back
     default:
         return "S";
@@ -265,11 +270,6 @@ void Maze_Solving_Task(void* pvParameters) {
         } else {
             // Exploration Mode
             next = Solve_Junction_Bits(sensors_state);
-
-            // Update path only if junction condition is met
-            if ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3)) {
-                path += next;
-            }
         }
 
         if (next == "S") {
