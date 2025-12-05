@@ -87,6 +87,7 @@ void handleSettings(String payload);
 void handleRC(String payload); 
 void handleStartSolving(String mazeName); 
 void sendSolution(); 
+void optimizePath(String &path);
 void handleLoadMaze(String mazeSolution); 
 void handleAbort(); 
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length); 
@@ -379,8 +380,40 @@ void handleStartSolving(String mazeName) {
     vTaskResume(maze_solving_task);
 }
 
+void optimizePath(String &path) {
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        if (path.indexOf("LBR") != -1) {
+            path.replace("LBR", "B");
+            changed = true;
+        }
+        if (path.indexOf("LBS") != -1) {
+            path.replace("LBS", "R");
+            changed = true;
+        }
+        if (path.indexOf("RBL") != -1) {
+            path.replace("RBL", "B");
+            changed = true;
+        }
+        if (path.indexOf("SBL") != -1) {
+            path.replace("SBL", "R");
+            changed = true;
+        }
+        if (path.indexOf("SBS") != -1) {
+            path.replace("SBS", "B");
+            changed = true;
+        }
+        if (path.indexOf("LBL") != -1) {
+            path.replace("LBL", "S");
+            changed = true;
+        }
+    }
+}
+
 void sendSolution() {
      if (isSolving && !isReplaying && path.length() > 0) {
+         optimizePath(path);
          String message = "maze_solution:" + currentMazeName + ";" + path;
          webSocket.broadcastTXT(message);
          Serial.println("Sent solution: " + message);
