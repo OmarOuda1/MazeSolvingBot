@@ -155,6 +155,7 @@ void setup() {
                  APP_CPU_NUM
                 );
     vTaskSuspend(maze_solving_task);
+    handleAbort();
 }
 
 void loop() {
@@ -320,6 +321,7 @@ void Motors_Task(void* pvParameters) {
         // NOTE: stack size = 4K byte
         int leftSpeed = cmd.x + cmd.y;
         int rightSpeed = cmd.x - cmd.y;
+        Serial.println("Moved");
 
         leftmotor.SetMotorSpeed(leftSpeed);
         rightmotor.SetMotorSpeed(rightSpeed);
@@ -367,6 +369,7 @@ void handleRC(String payload) {
         point cmd;
         cmd.x = x;
         cmd.y = y;
+        Serial.println("Sent x and y to motors");
         xQueueSend(motors_queue, &cmd, portMAX_DELAY);
     }
 }
