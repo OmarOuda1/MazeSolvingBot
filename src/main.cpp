@@ -103,6 +103,8 @@ void setup() {
     // ======= Sensors ======= //
     pinMode(IR_2,INPUT);
     pinMode(IR_1,INPUT);
+    pinMode(IR_3,INPUT);
+    pinMode(IR_4,INPUT);
 
     Wall_PID.SetOutputLimits(-maxSpeed, maxSpeed);
     Wall_PID.SetMode(AUTOMATIC);
@@ -234,12 +236,29 @@ void Maze_Solving_Task(void* pvParameters) {
         // read sensors 
         int left_ir = analogRead(IR_1);
         int right_ir = analogRead(IR_2);
-        float front_us = front_ultra.ping_cm();
+        int front_ir = analogRead(IR_3);
+        int floor_ir = digitalRead(IR_4);
+        // float front_us = front_ultra.ping_cm();
 
         uint8_t sensors_state = 0;
         sensors_state |= (right_ir < MAX_DISTANCE_IR) ? (1 << 0) : 0;
         sensors_state |= (left_ir < MAX_DISTANCE_IR) ? (1 << 1) : 0;
-        sensors_state |= (front_us < MIN_DISTANCE) ? (1 << 2) : 0;
+        sensors_state |= (front_ir < MAX_DISTANCE_IR) ? (1 << 2) : 0;
+
+        // Check for black spot (End of Maze)
+        if (floor_ir == 1) {
+             // Stop motors
+            point cmd;
+            cmd.x = 0;
+            cmd.y = 0;
+            xQueueSend(motors_queue, &cmd, portMAX_DELAY);
+
+            if (isSolving) {
+                sendSolution();
+            }
+            handleAbort();
+            // Note: handleAbort suspends this task, so execution stops here.
+        }
 
         String next = "";
         bool atJunction = false;
