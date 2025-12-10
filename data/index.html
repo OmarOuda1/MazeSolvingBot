@@ -16,6 +16,7 @@
             <button id="solve-maze-btn">Solve Maze</button>
             <button id="settings-btn">Settings</button>
             <button id="stop-btn">Stop</button>
+            <button id="power-off-btn">Power Off</button>
         </div>
 
         <div id="rc-view" class="hidden">
@@ -84,6 +85,17 @@
             <button id="start-solving-btn">Start Solving</button>
             <div class="loader hidden"></div>
             <button id="abort-solving-btn" class="hidden">Abort</button>
+        </div>
+    </div>
+
+    <!-- Power Off Confirmation Modal -->
+    <div id="power-off-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn">&times;</span>
+            <h2>Power Off</h2>
+            <p>Are you sure you want to power off the robot?</p>
+            <button id="confirm-power-off-btn">Yes, Power Off</button>
+            <button id="cancel-power-off-btn" style="background-color: var(--tea-rose-red);">Cancel</button>
         </div>
     </div>
 
