@@ -90,6 +90,7 @@ void sendSolution();
 void optimizePath(String &path);
 void handleLoadMaze(String mazeSolution); 
 void handleAbort(); 
+void handlePowerOff();
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length); 
 
 // ======= Function Prototypes ======= //
@@ -448,6 +449,16 @@ void handleAbort() {
     // sendSolution(); // Optional
 }
 
+void handlePowerOff() {
+    Serial.println("Power off command received. Entering deep sleep...");
+    webSocket.disconnect();
+
+    // Configure wake-up source: Touch Pad on GPIO 15 (T3)
+    // Threshold 40
+    touchSleepWakeUpEnable(T3, 40);
+    esp_deep_sleep_start();
+}
+
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
     switch (type) {
         case WStype_DISCONNECTED:
@@ -475,6 +486,8 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t lengt
                 handleAbort();
             } else if (command == "settings") {
                 handleSettings(data);
+            } else if (command == "power_off") {
+                handlePowerOff();
             } else {
                 Serial.println("Unknown command received");
             }

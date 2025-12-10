@@ -13,10 +13,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const stopBtn = document.getElementById('stop-btn');
     const rcBackBtn = document.getElementById('rc-back-btn');
     const settingsBackBtn = document.getElementById('settings-back-btn');
+    const powerOffBtn = document.getElementById('power-off-btn');
 
     // Modals
     const loadMazeModal = document.getElementById('load-maze-modal');
     const solveMazeModal = document.getElementById('solve-maze-modal');
+    const powerOffModal = document.getElementById('power-off-modal');
 
     // Modal components
     const mazeList = document.getElementById('maze-list');
@@ -25,6 +27,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const startSolvingBtn = document.getElementById('start-solving-btn');
     const abortSolvingBtn = document.getElementById('abort-solving-btn');
     const loader = document.querySelector('#solve-maze-modal .loader');
+    const confirmPowerOffBtn = document.getElementById('confirm-power-off-btn');
+    const cancelPowerOffBtn = document.getElementById('cancel-power-off-btn');
 
     // Close buttons
     const closeBtns = document.querySelectorAll('.close-btn');
@@ -268,6 +272,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     stopBtn.addEventListener('click', () => {
         sendMessage('abort');
+    });
+
+    powerOffBtn.addEventListener('click', () => {
+        powerOffModal.style.display = 'block';
+    });
+
+    confirmPowerOffBtn.addEventListener('click', () => {
+        sendMessage('power_off');
+        powerOffModal.style.display = 'none';
+        alert('Powering off...');
+    });
+
+    cancelPowerOffBtn.addEventListener('click', () => {
+        powerOffModal.style.display = 'none';
     });
 
     loadMazeBtn.addEventListener('click', () => {
