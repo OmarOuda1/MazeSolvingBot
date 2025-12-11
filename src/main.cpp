@@ -30,7 +30,8 @@ void Maze_Solving_Task(void*);
 TaskHandle_t maze_solving_task;
 
 #define SENSORS_NUM 4 //Number of sensors used
-#define MAX_DISTANCE_IR 100
+#define MAX_DISTANCE_IR 2500
+#define MAX_DISTANCE_IR_F 50
 #define MIN_DISTANCE 2
 
 // pin definitions
@@ -257,7 +258,7 @@ void Maze_Solving_Task(void* pvParameters) {
         uint8_t sensors_state = 0;
         sensors_state |= (right_ir < MAX_DISTANCE_IR) ? (1 << 0) : 0;
         sensors_state |= (left_ir < MAX_DISTANCE_IR) ? (1 << 1) : 0;
-        sensors_state |= (front_ir < MAX_DISTANCE_IR) ? (1 << 2) : 0;
+        sensors_state |= (front_ir < MAX_DISTANCE_IR_F) ? (1 << 2) : 0;
 
         // Check for black spot (End of Maze)
         if (floor_ir == 1) {
@@ -308,9 +309,13 @@ void Maze_Solving_Task(void* pvParameters) {
 
         if (next == "S") {
             // PID Control
-            Input = left_ir - right_ir;
-            Setpoint = 0;
-
+            if ((sensors_state & 2) == 2 && (sensors_state & 1) == 0) { // Only Left Wall
+                 Input = left_ir;
+                 Setpoint = 1100; 
+            } else {
+                 Input = left_ir - right_ir;
+                 Setpoint = 0;
+            }
             Wall_PID.Compute();
             cmd.x = maxSpeed;
             // cmd.y = 0;
@@ -331,7 +336,7 @@ void Maze_Solving_Task(void* pvParameters) {
 
         // Small delay to prevent CPU hogging and queue flooding
         Serial.println(next);
-        vTaskDelay(2000 / portTICK_PERIOD_MS);
+        vTaskDelay(20 / portTICK_PERIOD_MS);
     }
 }
 void Motors_Task(void* pvParameters) {
