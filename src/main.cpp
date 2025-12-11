@@ -14,6 +14,15 @@ String replayPath = "";
 bool isReplaying = false;
 int replayIndex = 0;
 
+
+
+#if CONFIG_IDF_TARGET_ESP32
+#define THRESHOLD 40   /* Greater the value, more the sensitivity */
+#else                  //ESP32-S2 and ESP32-S3 + default for other chips (to be adjusted) */
+#define THRESHOLD 5000 /* Lower the value, more the sensitivity */
+#endif
+
+
 // ======= MazeSolving ======= //
 #include <NewPing.h>
 void Maze_Solving_Task(void*);
@@ -100,6 +109,10 @@ void Perform_Turn(char direction, int duration, point* cmd);
 void setup() {
     Serial.begin(115200);
     delay(100);
+
+
+    touchSleepWakeUpEnable(15, THRESHOLD);
+    esp_sleep_enable_touchpad_wakeup();
 
     // ======= Sensors ======= //
     pinMode(IR_2,INPUT);
@@ -275,7 +288,7 @@ void Maze_Solving_Task(void* pvParameters) {
         if (isReplaying) {
              // In Replay Mode, we follow the path string
              // We need to detect when we are at a junction.
-            if ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3)) {
+            if (sensors_state == 0 || sensors_state == 1 || sensors_state == 2 || sensors_state == 4 || sensors_state == 7) {
                 // We are at a decision point (or end of corridor)
                 if (replayIndex < replayPath.length()) {
                     char move = replayPath.charAt(replayIndex++);
@@ -300,8 +313,10 @@ void Maze_Solving_Task(void* pvParameters) {
 
             Wall_PID.Compute();
             cmd.x = maxSpeed;
+            // cmd.y = 0;
             cmd.y = Output;
             xQueueSend(motors_queue, &cmd, portMAX_DELAY);
+            Serial.println(Output);
         } else if (next == "B") {
             // Rotate 180 (Turn Right)
             Perform_Turn('R', 600, &cmd);
@@ -315,7 +330,8 @@ void Maze_Solving_Task(void* pvParameters) {
         // For now, assume user stops it or we add a specific condition later.
 
         // Small delay to prevent CPU hogging and queue flooding
-        vTaskDelay(10 / portTICK_PERIOD_MS);
+        Serial.println(next);
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
     }
 }
 void Motors_Task(void* pvParameters) {
@@ -374,6 +390,12 @@ void handleSettings(String payload) {
 
 void handleRC(String payload) {
     // If we are solving, stop it first to take manual control
+    // Testing the sensors 
+        int left_ir = analogRead(IR_1);
+        int right_ir = analogRead(IR_2);
+        int front_ir = analogRead(IR_3);
+        int floor_ir = digitalRead(IR_4);
+        Serial.printf("Left: %d, Right: %d,Front: %d, Floor: %d \n",left_ir,right_ir,front_ir,floor_ir);
     if (isSolving) {
         vTaskSuspend(maze_solving_task);
         isSolving = false;
@@ -474,7 +496,9 @@ void handlePowerOff() {
 
     // Configure wake-up source: Touch Pad on GPIO 15 (T3)
     // Threshold 40
-    touchSleepWakeUpEnable(T3, 40);
+    // touchSleepWakeUpEnable(T3, 10);
+
+    
     esp_deep_sleep_start();
 }
 
