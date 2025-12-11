@@ -337,10 +337,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const modal = btn.closest('.modal');
             if (modal) {
                 modal.style.display = 'none';
-                if (modal === solveMazeModal) {
-                    sendMessage('abort');
-                    resetSolveMazeModal();
-                }
             }
         });
     });
@@ -348,10 +344,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('click', (event) => {
         if (event.target.classList.contains('modal')) {
             event.target.style.display = 'none';
-            if (event.target === solveMazeModal) {
-                sendMessage('abort');
-                resetSolveMazeModal();
-            }
         }
     });
 
