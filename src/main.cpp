@@ -16,11 +16,8 @@ int replayIndex = 0;
 
 
 
-#if CONFIG_IDF_TARGET_ESP32
-#define THRESHOLD 40   /* Greater the value, more the sensitivity */
-#else                  //ESP32-S2 and ESP32-S3 + default for other chips (to be adjusted) */
-#define THRESHOLD 5000 /* Lower the value, more the sensitivity */
-#endif
+#define BUTTON_PIN      GPIO_NUM_15  
+#define HOLD_TIME_MS    2000        // 2 seconds hold to wake
 
 
 // ======= MazeSolving ======= //
@@ -111,9 +108,9 @@ void setup() {
     Serial.begin(115200);
     delay(100);
 
-
-    touchSleepWakeUpEnable(15, THRESHOLD);
-    esp_sleep_enable_touchpad_wakeup();
+    // 1. Setup the Pin
+  // INPUT_PULLUP keeps the pin at 3.3V when not pressed.
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
 
     // ======= Sensors ======= //
     pinMode(IR_2,INPUT);
@@ -121,14 +118,14 @@ void setup() {
     pinMode(IR_3,INPUT);
     pinMode(IR_4,INPUT);
 
-    Wall_PID.SetOutputLimits(-maxSpeed, maxSpeed);
+    Wall_PID.SetOutputLimits(-maxSpeed/2, maxSpeed/2);
     Wall_PID.SetMode(AUTOMATIC);
 
     // ======= Motors ======= //
     motors_queue = xQueueCreate( QUEUE_SIZE , sizeof(point) );
     xTaskCreatePinnedToCore(Motors_Task,     // Function name
                             "Motors_Task",   // Task name
-                            1024,            // Stack size in words (Word = 4 bytes)
+                            4096,            // Stack size in words (Word = 4 bytes)
                             NULL,            // Task parameters
                             2,               // Task priority (From 0 to 24)
                             &motors_task ,   // Pointer to task handle
@@ -313,8 +310,8 @@ void Maze_Solving_Task(void* pvParameters) {
                  Input = left_ir;
                  Setpoint = 1100; 
             } else {
-                 Input = left_ir - right_ir;
-                 Setpoint = 0;
+                Input = left_ir - right_ir;
+                Setpoint = 0;
             }
             Wall_PID.Compute();
             cmd.x = maxSpeed;
@@ -327,7 +324,7 @@ void Maze_Solving_Task(void* pvParameters) {
             Perform_Turn('R', 600, &cmd);
         } else {
             char direction = next.charAt(0);
-            Perform_Turn(direction, 300, &cmd);
+            Perform_Turn(direction, 600, &cmd);
         }
 
         // Check for end of maze condition (e.g., specific sensor pattern or manual stop)
@@ -340,13 +337,6 @@ void Maze_Solving_Task(void* pvParameters) {
     }
 }
 void Motors_Task(void* pvParameters) {
-    // TODO
-    // Create the code that takes values from a queue and execute those values on the motors
-    // The number of motors is 4 but each two is wired together so the number of motors you can control is 2
-    // The values are in the from of x and y values use these values to determine the speed of the two motors
-    // Use a library to manage the motors do not send any signals yourself just use the library
-    // You objective is to use the x and y values to change the speed of the motors.
-
     // Examples
     // x = 100 means move forward at full speed -100 means backwards
     // if y = 100 and x = 0 that means rotate around it axis clockwise ie. motors run in opposite directions
@@ -358,14 +348,18 @@ void Motors_Task(void* pvParameters) {
     
         xQueueReceive(motors_queue, &cmd, portMAX_DELAY);
 
-        // TODO move motors (NOTE: This while loop is equivalent to void loop)
-        // NOTE: stack size = 4K byte
+        // NOTE: stack size = 8K byte
         int leftSpeed = cmd.x + cmd.y;
         int rightSpeed = cmd.x - cmd.y;
-        Serial.println("Moved");
-
-        leftmotor.SetMotorSpeed(leftSpeed);
-        rightmotor.SetMotorSpeed(rightSpeed);
+        
+        if (isSolving == true)  {
+            leftmotor.SetMotorSpeed(leftSpeed*1.6);
+            rightmotor.SetMotorSpeed(-rightSpeed);
+        }else {
+            leftmotor.SetMotorSpeed(leftSpeed*1.6);
+            rightmotor.SetMotorSpeed(rightSpeed);
+        }
+        Serial.printf("Right = %d, Left = %d \n",rightSpeed,leftSpeed);
     }
     
 
@@ -388,7 +382,7 @@ void handleSettings(String payload) {
     Kd = doc["kd"];
 
     Wall_PID.SetTunings(Kp, Ki, Kd);
-    Wall_PID.SetOutputLimits(-maxSpeed, maxSpeed);
+    Wall_PID.SetOutputLimits(-maxSpeed/2, maxSpeed/2);
 
     Serial.printf("Settings updated: max_speed=%d, Kp=%.2f, Ki=%.2f, Kd=%.2f\n", maxSpeed, Kp, Ki, Kd);
 }
@@ -411,7 +405,7 @@ void handleRC(String payload) {
     if (commaIndex != -1) {
         int x = payload.substring(0, commaIndex).toInt();
         int y = payload.substring(commaIndex + 1).toInt();
-        // Serial.printf("RC command: x=%d, y=%d\n", x, y);
+        Serial.printf("RC command: x=%d, y=%d\n", x, y);
 
         point cmd;
         cmd.x = x;
@@ -430,32 +424,32 @@ void handleStartSolving(String mazeName) {
     vTaskResume(maze_solving_task);
 }
 
-void optimizePath(String &path) {
+void optimizePath(String* path) {
     bool changed = true;
     while (changed) {
         changed = false;
-        if (path.indexOf("LBR") != -1) {
-            path.replace("LBR", "B");
+        if (path->indexOf("LBR") != -1) {
+            path->replace("LBR", "B");
             changed = true;
         }
-        if (path.indexOf("LBS") != -1) {
-            path.replace("LBS", "R");
+        if (path->indexOf("LBS") != -1) {
+            path->replace("LBS", "R");
             changed = true;
         }
-        if (path.indexOf("RBL") != -1) {
-            path.replace("RBL", "B");
+        if (path->indexOf("RBL") != -1) {
+            path->replace("RBL", "B");
             changed = true;
         }
-        if (path.indexOf("SBL") != -1) {
-            path.replace("SBL", "R");
+        if (path->indexOf("SBL") != -1) {
+            path->replace("SBL", "R");
             changed = true;
         }
-        if (path.indexOf("SBS") != -1) {
-            path.replace("SBS", "B");
+        if (path->indexOf("SBS") != -1) {
+            path->replace("SBS", "B");
             changed = true;
         }
-        if (path.indexOf("LBL") != -1) {
-            path.replace("LBL", "S");
+        if (path->indexOf("LBL") != -1) {
+            path->replace("LBL", "S");
             changed = true;
         }
     }
@@ -463,7 +457,7 @@ void optimizePath(String &path) {
 
 void sendSolution() {
      if (isSolving && !isReplaying && path.length() > 0) {
-         optimizePath(path);
+         optimizePath(&path);
          String message = "maze_solution:" + currentMazeName + ";" + path;
          webSocket.broadcastTXT(message);
          Serial.println("Sent solution: " + message);
@@ -500,11 +494,13 @@ void handlePowerOff() {
     webSocket.disconnect();
 
     // Configure wake-up source: Touch Pad on GPIO 15 (T3)
-    // Threshold 40
-    // touchSleepWakeUpEnable(T3, 10);
-
+    esp_sleep_enable_ext0_wakeup(BUTTON_PIN, 0); 
+  
+     // 2. Enter Deep Sleep
+     Serial.println("Entering Deep Sleep now.");
+     Serial.flush();
+     esp_deep_sleep_start();
     
-    esp_deep_sleep_start();
 }
 
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
