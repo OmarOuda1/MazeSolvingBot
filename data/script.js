@@ -150,7 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
     toggleModeBtn.addEventListener('click', () => {
         isObstacleMode = !isObstacleMode;
         updateModeUI();
-        // sendMessage('abort'); // Optional: Stop current action when switching modes?
+        sendMessage('abort'); //  Stop current action when switching modes?
     });
 
     updateModeUI();
