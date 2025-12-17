@@ -131,7 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const kdInput = document.getElementById('kd-input');
 
     // Mode State
-    let isObstacleMode = false;
+    let isObstacleMode = true;
 
     const updateModeUI = () => {
         if (isObstacleMode) {
@@ -152,6 +152,8 @@ document.addEventListener('DOMContentLoaded', () => {
         updateModeUI();
         // sendMessage('abort'); // Optional: Stop current action when switching modes?
     });
+
+    updateModeUI();
 
     const sendSettings = () => {
         const settings = {
