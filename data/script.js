@@ -9,14 +9,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const rcModeBtn = document.getElementById('rc-mode-btn');
     const loadMazeBtn = document.getElementById('load-maze-btn');
     const solveMazeBtn = document.getElementById('solve-maze-btn');
+    const obstacleModeBtn = document.getElementById('obstacle-mode-btn');
     const settingsBtn = document.getElementById('settings-btn');
     const stopBtn = document.getElementById('stop-btn');
     const rcBackBtn = document.getElementById('rc-back-btn');
     const settingsBackBtn = document.getElementById('settings-back-btn');
+    const powerOffBtn = document.getElementById('power-off-btn');
+    const toggleModeBtn = document.getElementById('toggle-mode-btn');
 
     // Modals
     const loadMazeModal = document.getElementById('load-maze-modal');
     const solveMazeModal = document.getElementById('solve-maze-modal');
+    const powerOffModal = document.getElementById('power-off-modal');
 
     // Modal components
     const mazeList = document.getElementById('maze-list');
@@ -25,6 +29,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const startSolvingBtn = document.getElementById('start-solving-btn');
     const abortSolvingBtn = document.getElementById('abort-solving-btn');
     const loader = document.querySelector('#solve-maze-modal .loader');
+    const confirmPowerOffBtn = document.getElementById('confirm-power-off-btn');
+    const cancelPowerOffBtn = document.getElementById('cancel-power-off-btn');
 
     // Close buttons
     const closeBtns = document.querySelectorAll('.close-btn');
@@ -123,6 +129,31 @@ document.addEventListener('DOMContentLoaded', () => {
     const kpInput = document.getElementById('kp-input');
     const kiInput = document.getElementById('ki-input');
     const kdInput = document.getElementById('kd-input');
+
+    // Mode State
+    let isObstacleMode = true;
+
+    const updateModeUI = () => {
+        if (isObstacleMode) {
+            loadMazeBtn.classList.add('hidden');
+            solveMazeBtn.classList.add('hidden');
+            obstacleModeBtn.classList.remove('hidden');
+            toggleModeBtn.textContent = "Switch to Maze Solving Mode";
+        } else {
+            loadMazeBtn.classList.remove('hidden');
+            solveMazeBtn.classList.remove('hidden');
+            obstacleModeBtn.classList.add('hidden');
+            toggleModeBtn.textContent = "Switch to Obstacle Mode";
+        }
+    };
+
+    toggleModeBtn.addEventListener('click', () => {
+        isObstacleMode = !isObstacleMode;
+        updateModeUI();
+        sendMessage('abort'); //  Stop current action when switching modes?
+    });
+
+    updateModeUI();
 
     const sendSettings = () => {
         const settings = {
@@ -270,6 +301,20 @@ document.addEventListener('DOMContentLoaded', () => {
         sendMessage('abort');
     });
 
+    powerOffBtn.addEventListener('click', () => {
+        powerOffModal.style.display = 'block';
+    });
+
+    confirmPowerOffBtn.addEventListener('click', () => {
+        sendMessage('power_off');
+        powerOffModal.style.display = 'none';
+        alert('Powering off...');
+    });
+
+    cancelPowerOffBtn.addEventListener('click', () => {
+        powerOffModal.style.display = 'none';
+    });
+
     loadMazeBtn.addEventListener('click', () => {
         populateMazeList();
         loadMazeModal.style.display = 'block';
@@ -277,6 +322,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     solveMazeBtn.addEventListener('click', () => {
         solveMazeModal.style.display = 'block';
+    });
+
+    obstacleModeBtn.addEventListener('click', () => {
+        sendMessage('start_obstacle');
+        alert('Obstacle Avoidance Started');
     });
 
     startSolvingBtn.addEventListener('click', () => {
@@ -319,10 +369,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const modal = btn.closest('.modal');
             if (modal) {
                 modal.style.display = 'none';
-                if (modal === solveMazeModal) {
-                    sendMessage('abort');
-                    resetSolveMazeModal();
-                }
             }
         });
     });
@@ -330,10 +376,6 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('click', (event) => {
         if (event.target.classList.contains('modal')) {
             event.target.style.display = 'none';
-            if (event.target === solveMazeModal) {
-                sendMessage('abort');
-                resetSolveMazeModal();
-            }
         }
     });
 

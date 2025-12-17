@@ -14,14 +14,23 @@ String replayPath = "";
 bool isReplaying = false;
 int replayIndex = 0;
 
+
+
+#define BUTTON_PIN      GPIO_NUM_15  
+#define HOLD_TIME_MS    2000        // 2 seconds hold to wake
+
+
 // ======= MazeSolving ======= //
 #include <NewPing.h>
 void Maze_Solving_Task(void*);
+void Obstacle_Avoidance_Task(void*);
 
 TaskHandle_t maze_solving_task;
+TaskHandle_t obstacle_avoidance_task;
 
 #define SENSORS_NUM 4 //Number of sensors used
-#define MAX_DISTANCE_IR 100
+#define MAX_DISTANCE_IR 2500
+#define MAX_DISTANCE_IR_F 50
 #define MIN_DISTANCE 2
 
 // pin definitions
@@ -86,10 +95,12 @@ WebSocketsServer webSocket = WebSocketsServer(81);
 void handleSettings(String payload); 
 void handleRC(String payload); 
 void handleStartSolving(String mazeName); 
+void handleStartObstacle();
 void sendSolution(); 
 void optimizePath(String &path);
 void handleLoadMaze(String mazeSolution); 
 void handleAbort(); 
+void handlePowerOff();
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length); 
 
 // ======= Function Prototypes ======= //
@@ -100,18 +111,24 @@ void setup() {
     Serial.begin(115200);
     delay(100);
 
+    // 1. Setup the Pin
+  // INPUT_PULLUP keeps the pin at 3.3V when not pressed.
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+
     // ======= Sensors ======= //
     pinMode(IR_2,INPUT);
     pinMode(IR_1,INPUT);
+    pinMode(IR_3,INPUT);
+    pinMode(IR_4,INPUT);
 
-    Wall_PID.SetOutputLimits(-maxSpeed, maxSpeed);
+    Wall_PID.SetOutputLimits(-maxSpeed/2, maxSpeed/2);
     Wall_PID.SetMode(AUTOMATIC);
 
     // ======= Motors ======= //
     motors_queue = xQueueCreate( QUEUE_SIZE , sizeof(point) );
     xTaskCreatePinnedToCore(Motors_Task,     // Function name
                             "Motors_Task",   // Task name
-                            1024,            // Stack size in words (Word = 4 bytes)
+                            4096,            // Stack size in words (Word = 4 bytes)
                             NULL,            // Task parameters
                             2,               // Task priority (From 0 to 24)
                             &motors_task ,   // Pointer to task handle
@@ -155,6 +172,17 @@ void setup() {
                  APP_CPU_NUM
                 );
     vTaskSuspend(maze_solving_task);
+
+    xTaskCreatePinnedToCore(Obstacle_Avoidance_Task,      // Function name
+                 "Obstacle_Avoidance_Task",   // Task name
+                 4096,            // Stack size in words (Word = 4 bytes)
+                 NULL,            // Task parameters
+                 2,               // Task priority (From 0 to 24)
+                 &obstacle_avoidance_task,     // Pointer to task handle
+                 APP_CPU_NUM
+                );
+    vTaskSuspend(obstacle_avoidance_task);
+
     handleAbort();
 }
 
@@ -234,12 +262,29 @@ void Maze_Solving_Task(void* pvParameters) {
         // read sensors 
         int left_ir = analogRead(IR_1);
         int right_ir = analogRead(IR_2);
-        float front_us = front_ultra.ping_cm();
+        int front_ir = analogRead(IR_3);
+        int floor_ir = digitalRead(IR_4);
+        // float front_us = front_ultra.ping_cm();
 
         uint8_t sensors_state = 0;
         sensors_state |= (right_ir < MAX_DISTANCE_IR) ? (1 << 0) : 0;
         sensors_state |= (left_ir < MAX_DISTANCE_IR) ? (1 << 1) : 0;
-        sensors_state |= (front_us < MIN_DISTANCE) ? (1 << 2) : 0;
+        sensors_state |= (front_ir < MAX_DISTANCE_IR_F) ? (1 << 2) : 0;
+
+        // Check for black spot (End of Maze)
+        if (floor_ir == 1) {
+             // Stop motors
+            point cmd;
+            cmd.x = 0;
+            cmd.y = 0;
+            xQueueSend(motors_queue, &cmd, portMAX_DELAY);
+
+            if (isSolving) {
+                sendSolution();
+            }
+            handleAbort();
+            // Note: handleAbort suspends this task, so execution stops here.
+        }
 
         String next = "";
         bool atJunction = false;
@@ -255,7 +300,7 @@ void Maze_Solving_Task(void* pvParameters) {
         if (isReplaying) {
              // In Replay Mode, we follow the path string
              // We need to detect when we are at a junction.
-            if ((sensors_state ^ 6) | (sensors_state ^ 5) | sensors_state | (sensors_state ^ 3)) {
+            if (sensors_state == 0 || sensors_state == 1 || sensors_state == 2 || sensors_state == 4 || sensors_state == 7) {
                 // We are at a decision point (or end of corridor)
                 if (replayIndex < replayPath.length()) {
                     char move = replayPath.charAt(replayIndex++);
@@ -275,19 +320,25 @@ void Maze_Solving_Task(void* pvParameters) {
 
         if (next == "S") {
             // PID Control
-            Input = left_ir - right_ir;
-            Setpoint = 0;
-
+            if ((sensors_state & 2) == 2 && (sensors_state & 1) == 0) { // Only Left Wall
+                 Input = left_ir;
+                 Setpoint = 1100; 
+            } else {
+                Input = left_ir - right_ir;
+                Setpoint = 0;
+            }
             Wall_PID.Compute();
             cmd.x = maxSpeed;
+            // cmd.y = 0;
             cmd.y = Output;
             xQueueSend(motors_queue, &cmd, portMAX_DELAY);
+            Serial.println(Output);
         } else if (next == "B") {
             // Rotate 180 (Turn Right)
             Perform_Turn('R', 600, &cmd);
         } else {
             char direction = next.charAt(0);
-            Perform_Turn(direction, 300, &cmd);
+            Perform_Turn(direction, 600, &cmd);
         }
 
         // Check for end of maze condition (e.g., specific sensor pattern or manual stop)
@@ -295,17 +346,51 @@ void Maze_Solving_Task(void* pvParameters) {
         // For now, assume user stops it or we add a specific condition later.
 
         // Small delay to prevent CPU hogging and queue flooding
-        vTaskDelay(10 / portTICK_PERIOD_MS);
+        Serial.println(next);
+        vTaskDelay(20 / portTICK_PERIOD_MS);
     }
 }
-void Motors_Task(void* pvParameters) {
-    // TODO
-    // Create the code that takes values from a queue and execute those values on the motors
-    // The number of motors is 4 but each two is wired together so the number of motors you can control is 2
-    // The values are in the from of x and y values use these values to determine the speed of the two motors
-    // Use a library to manage the motors do not send any signals yourself just use the library
-    // You objective is to use the x and y values to change the speed of the motors.
 
+void Obstacle_Avoidance_Task(void* pvParameters) {
+    point cmd;
+    while(true) {
+        int left_ir = analogRead(IR_1);
+        int right_ir = analogRead(IR_2);
+        unsigned int distance = front_ultra.ping_cm();
+
+        // 0 means out of range (far)
+        if (distance > 0 && distance < 20) {
+             // Stop
+             cmd.x = 0; cmd.y = 0;
+             xQueueSend(motors_queue, &cmd, portMAX_DELAY);
+             vTaskDelay(100 / portTICK_PERIOD_MS);
+
+             bool left_blocked = (left_ir < MAX_DISTANCE_IR);
+             bool right_blocked = (right_ir < MAX_DISTANCE_IR);
+
+             if (left_blocked && !right_blocked) {
+                 Perform_Turn('R', 400, &cmd);
+             } else if (!left_blocked && right_blocked) {
+                 Perform_Turn('L', 400, &cmd);
+             } else {
+                  // Default turn right
+                  Perform_Turn('R', 600, &cmd);
+             }
+        } else {
+            // Move Forward
+            cmd.x = maxSpeed;
+            // Simple side avoidance
+            int steer = 0;
+            if (left_ir < MAX_DISTANCE_IR) steer += 15;
+            if (right_ir < MAX_DISTANCE_IR) steer -= 15;
+            cmd.y = steer;
+            xQueueSend(motors_queue, &cmd, portMAX_DELAY);
+        }
+        vTaskDelay(50 / portTICK_PERIOD_MS);
+    }
+}
+
+void Motors_Task(void* pvParameters) {
     // Examples
     // x = 100 means move forward at full speed -100 means backwards
     // if y = 100 and x = 0 that means rotate around it axis clockwise ie. motors run in opposite directions
@@ -317,14 +402,18 @@ void Motors_Task(void* pvParameters) {
     
         xQueueReceive(motors_queue, &cmd, portMAX_DELAY);
 
-        // TODO move motors (NOTE: This while loop is equivalent to void loop)
-        // NOTE: stack size = 4K byte
+        // NOTE: stack size = 8K byte
         int leftSpeed = cmd.x + cmd.y;
         int rightSpeed = cmd.x - cmd.y;
-        Serial.println("Moved");
-
-        leftmotor.SetMotorSpeed(leftSpeed);
-        rightmotor.SetMotorSpeed(rightSpeed);
+        
+        if (isSolving == true)  {
+            leftmotor.SetMotorSpeed(leftSpeed*1.6);
+            rightmotor.SetMotorSpeed(-rightSpeed);
+        }else {
+            leftmotor.SetMotorSpeed(leftSpeed*1.6);
+            rightmotor.SetMotorSpeed(rightSpeed);
+        }
+        Serial.printf("Right = %d, Left = %d \n",rightSpeed,leftSpeed);
     }
     
 
@@ -347,15 +436,22 @@ void handleSettings(String payload) {
     Kd = doc["kd"];
 
     Wall_PID.SetTunings(Kp, Ki, Kd);
-    Wall_PID.SetOutputLimits(-maxSpeed, maxSpeed);
+    Wall_PID.SetOutputLimits(-maxSpeed/2, maxSpeed/2);
 
     Serial.printf("Settings updated: max_speed=%d, Kp=%.2f, Ki=%.2f, Kd=%.2f\n", maxSpeed, Kp, Ki, Kd);
 }
 
 void handleRC(String payload) {
     // If we are solving, stop it first to take manual control
+    // Testing the sensors 
+        int left_ir = analogRead(IR_1);
+        int right_ir = analogRead(IR_2);
+        int front_ir = analogRead(IR_3);
+        int floor_ir = digitalRead(IR_4);
+        Serial.printf("Left: %d, Right: %d,Front: %d, Floor: %d \n",left_ir,right_ir,front_ir,floor_ir);
     if (isSolving) {
         vTaskSuspend(maze_solving_task);
+        vTaskSuspend(obstacle_avoidance_task);
         isSolving = false;
         Serial.println("Paused solving for RC");
     }
@@ -364,7 +460,7 @@ void handleRC(String payload) {
     if (commaIndex != -1) {
         int x = payload.substring(0, commaIndex).toInt();
         int y = payload.substring(commaIndex + 1).toInt();
-        // Serial.printf("RC command: x=%d, y=%d\n", x, y);
+        Serial.printf("RC command: x=%d, y=%d\n", x, y);
 
         point cmd;
         cmd.x = x;
@@ -380,35 +476,44 @@ void handleStartSolving(String mazeName) {
     path = "";
     isSolving = true;
     isReplaying = false;
+    vTaskSuspend(obstacle_avoidance_task);
     vTaskResume(maze_solving_task);
 }
 
-void optimizePath(String &path) {
+void handleStartObstacle() {
+    Serial.println("Start Obstacle Avoidance");
+    isSolving = true;
+    isReplaying = false;
+    vTaskSuspend(maze_solving_task);
+    vTaskResume(obstacle_avoidance_task);
+}
+
+void optimizePath(String* path) {
     bool changed = true;
     while (changed) {
         changed = false;
-        if (path.indexOf("LBR") != -1) {
-            path.replace("LBR", "B");
+        if (path->indexOf("LBR") != -1) {
+            path->replace("LBR", "B");
             changed = true;
         }
-        if (path.indexOf("LBS") != -1) {
-            path.replace("LBS", "R");
+        if (path->indexOf("LBS") != -1) {
+            path->replace("LBS", "R");
             changed = true;
         }
-        if (path.indexOf("RBL") != -1) {
-            path.replace("RBL", "B");
+        if (path->indexOf("RBL") != -1) {
+            path->replace("RBL", "B");
             changed = true;
         }
-        if (path.indexOf("SBL") != -1) {
-            path.replace("SBL", "R");
+        if (path->indexOf("SBL") != -1) {
+            path->replace("SBL", "R");
             changed = true;
         }
-        if (path.indexOf("SBS") != -1) {
-            path.replace("SBS", "B");
+        if (path->indexOf("SBS") != -1) {
+            path->replace("SBS", "B");
             changed = true;
         }
-        if (path.indexOf("LBL") != -1) {
-            path.replace("LBL", "S");
+        if (path->indexOf("LBL") != -1) {
+            path->replace("LBL", "S");
             changed = true;
         }
     }
@@ -416,7 +521,7 @@ void optimizePath(String &path) {
 
 void sendSolution() {
      if (isSolving && !isReplaying && path.length() > 0) {
-         optimizePath(path);
+         optimizePath(&path);
          String message = "maze_solution:" + currentMazeName + ";" + path;
          webSocket.broadcastTXT(message);
          Serial.println("Sent solution: " + message);
@@ -437,6 +542,7 @@ void handleAbort() {
     isSolving = false;
     isReplaying = false;
     vTaskSuspend(maze_solving_task);
+    vTaskSuspend(obstacle_avoidance_task);
 
     // Stop motors
     point cmd;
@@ -446,6 +552,20 @@ void handleAbort() {
     // but usually abort means "stop everything".
     // Check if we found a solution before aborting?
     // sendSolution(); // Optional
+}
+
+void handlePowerOff() {
+    Serial.println("Power off command received. Entering deep sleep...");
+    webSocket.disconnect();
+
+    // Configure wake-up source: Touch Pad on GPIO 15 (T3)
+    esp_sleep_enable_ext0_wakeup(BUTTON_PIN, 0); 
+  
+     // 2. Enter Deep Sleep
+     Serial.println("Entering Deep Sleep now.");
+     Serial.flush();
+     esp_deep_sleep_start();
+    
 }
 
 void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
@@ -469,12 +589,16 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t lengt
                 handleRC(data);
             } else if (command == "start_solving") {
                 handleStartSolving(data);
+            } else if (command == "start_obstacle") {
+                handleStartObstacle();
             } else if (command == "load_maze") {
                 handleLoadMaze(data);
             } else if (command == "abort") {
                 handleAbort();
             } else if (command == "settings") {
                 handleSettings(data);
+            } else if (command == "power_off") {
+                handlePowerOff();
             } else {
                 Serial.println("Unknown command received");
             }
