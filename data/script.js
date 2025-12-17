@@ -9,11 +9,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const rcModeBtn = document.getElementById('rc-mode-btn');
     const loadMazeBtn = document.getElementById('load-maze-btn');
     const solveMazeBtn = document.getElementById('solve-maze-btn');
+    const obstacleModeBtn = document.getElementById('obstacle-mode-btn');
     const settingsBtn = document.getElementById('settings-btn');
     const stopBtn = document.getElementById('stop-btn');
     const rcBackBtn = document.getElementById('rc-back-btn');
     const settingsBackBtn = document.getElementById('settings-back-btn');
     const powerOffBtn = document.getElementById('power-off-btn');
+    const toggleModeBtn = document.getElementById('toggle-mode-btn');
 
     // Modals
     const loadMazeModal = document.getElementById('load-maze-modal');
@@ -127,6 +129,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const kpInput = document.getElementById('kp-input');
     const kiInput = document.getElementById('ki-input');
     const kdInput = document.getElementById('kd-input');
+
+    // Mode State
+    let isObstacleMode = true;
+
+    const updateModeUI = () => {
+        if (isObstacleMode) {
+            loadMazeBtn.classList.add('hidden');
+            solveMazeBtn.classList.add('hidden');
+            obstacleModeBtn.classList.remove('hidden');
+            toggleModeBtn.textContent = "Switch to Maze Solving Mode";
+        } else {
+            loadMazeBtn.classList.remove('hidden');
+            solveMazeBtn.classList.remove('hidden');
+            obstacleModeBtn.classList.add('hidden');
+            toggleModeBtn.textContent = "Switch to Obstacle Mode";
+        }
+    };
+
+    toggleModeBtn.addEventListener('click', () => {
+        isObstacleMode = !isObstacleMode;
+        updateModeUI();
+        // sendMessage('abort'); // Optional: Stop current action when switching modes?
+    });
 
     const sendSettings = () => {
         const settings = {
@@ -295,6 +320,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     solveMazeBtn.addEventListener('click', () => {
         solveMazeModal.style.display = 'block';
+    });
+
+    obstacleModeBtn.addEventListener('click', () => {
+        sendMessage('start_obstacle');
+        alert('Obstacle Avoidance Started');
     });
 
     startSolvingBtn.addEventListener('click', () => {

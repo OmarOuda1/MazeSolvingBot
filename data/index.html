@@ -12,8 +12,9 @@
             <h1>Robot Controller</h1>
             <p>Select a mode or command to begin.</p>
             <button id="rc-mode-btn">RC Mode</button>
-            <button id="load-maze-btn">Load Maze</button>
-            <button id="solve-maze-btn">Solve Maze</button>
+            <button id="load-maze-btn" class="hidden">Load Maze</button>
+            <button id="solve-maze-btn" class="hidden">Solve Maze</button>
+            <button id="obstacle-mode-btn">Start Obstacle Avoidance</button>
             <button id="settings-btn">Settings</button>
             <button id="stop-btn">Stop</button>
             <button id="power-off-btn">Power Off</button>
@@ -27,6 +28,9 @@
 
         <div id="settings-view" class="hidden">
             <h1>Settings</h1>
+
+            <button id="toggle-mode-btn">Switch to Maze Solving Mode</button>
+            <br><br>
 
             <div class="setting">
                 <label for="max-speed-slider">Max Speed: <span id="max-speed-value">50</span>%</label>

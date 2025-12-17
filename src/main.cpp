@@ -23,8 +23,10 @@ int replayIndex = 0;
 // ======= MazeSolving ======= //
 #include <NewPing.h>
 void Maze_Solving_Task(void*);
+void Obstacle_Avoidance_Task(void*);
 
 TaskHandle_t maze_solving_task;
+TaskHandle_t obstacle_avoidance_task;
 
 #define SENSORS_NUM 4 //Number of sensors used
 #define MAX_DISTANCE_IR 2500
@@ -93,6 +95,7 @@ WebSocketsServer webSocket = WebSocketsServer(81);
 void handleSettings(String payload); 
 void handleRC(String payload); 
 void handleStartSolving(String mazeName); 
+void handleStartObstacle();
 void sendSolution(); 
 void optimizePath(String &path);
 void handleLoadMaze(String mazeSolution); 
@@ -169,6 +172,17 @@ void setup() {
                  APP_CPU_NUM
                 );
     vTaskSuspend(maze_solving_task);
+
+    xTaskCreatePinnedToCore(Obstacle_Avoidance_Task,      // Function name
+                 "Obstacle_Avoidance_Task",   // Task name
+                 4096,            // Stack size in words (Word = 4 bytes)
+                 NULL,            // Task parameters
+                 2,               // Task priority (From 0 to 24)
+                 &obstacle_avoidance_task,     // Pointer to task handle
+                 APP_CPU_NUM
+                );
+    vTaskSuspend(obstacle_avoidance_task);
+
     handleAbort();
 }
 
@@ -336,6 +350,46 @@ void Maze_Solving_Task(void* pvParameters) {
         vTaskDelay(20 / portTICK_PERIOD_MS);
     }
 }
+
+void Obstacle_Avoidance_Task(void* pvParameters) {
+    point cmd;
+    while(true) {
+        int left_ir = analogRead(IR_1);
+        int right_ir = analogRead(IR_2);
+        unsigned int distance = front_ultra.ping_cm();
+
+        // 0 means out of range (far)
+        if (distance > 0 && distance < 20) {
+             // Stop
+             cmd.x = 0; cmd.y = 0;
+             xQueueSend(motors_queue, &cmd, portMAX_DELAY);
+             vTaskDelay(100 / portTICK_PERIOD_MS);
+
+             bool left_blocked = (left_ir < MAX_DISTANCE_IR);
+             bool right_blocked = (right_ir < MAX_DISTANCE_IR);
+
+             if (left_blocked && !right_blocked) {
+                 Perform_Turn('R', 400, &cmd);
+             } else if (!left_blocked && right_blocked) {
+                 Perform_Turn('L', 400, &cmd);
+             } else {
+                  // Default turn right
+                  Perform_Turn('R', 600, &cmd);
+             }
+        } else {
+            // Move Forward
+            cmd.x = maxSpeed;
+            // Simple side avoidance
+            int steer = 0;
+            if (left_ir < MAX_DISTANCE_IR) steer += 15;
+            if (right_ir < MAX_DISTANCE_IR) steer -= 15;
+            cmd.y = steer;
+            xQueueSend(motors_queue, &cmd, portMAX_DELAY);
+        }
+        vTaskDelay(50 / portTICK_PERIOD_MS);
+    }
+}
+
 void Motors_Task(void* pvParameters) {
     // Examples
     // x = 100 means move forward at full speed -100 means backwards
@@ -397,6 +451,7 @@ void handleRC(String payload) {
         Serial.printf("Left: %d, Right: %d,Front: %d, Floor: %d \n",left_ir,right_ir,front_ir,floor_ir);
     if (isSolving) {
         vTaskSuspend(maze_solving_task);
+        vTaskSuspend(obstacle_avoidance_task);
         isSolving = false;
         Serial.println("Paused solving for RC");
     }
@@ -421,7 +476,16 @@ void handleStartSolving(String mazeName) {
     path = "";
     isSolving = true;
     isReplaying = false;
+    vTaskSuspend(obstacle_avoidance_task);
     vTaskResume(maze_solving_task);
+}
+
+void handleStartObstacle() {
+    Serial.println("Start Obstacle Avoidance");
+    isSolving = true;
+    isReplaying = false;
+    vTaskSuspend(maze_solving_task);
+    vTaskResume(obstacle_avoidance_task);
 }
 
 void optimizePath(String* path) {
@@ -478,6 +542,7 @@ void handleAbort() {
     isSolving = false;
     isReplaying = false;
     vTaskSuspend(maze_solving_task);
+    vTaskSuspend(obstacle_avoidance_task);
 
     // Stop motors
     point cmd;
@@ -524,6 +589,8 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t lengt
                 handleRC(data);
             } else if (command == "start_solving") {
                 handleStartSolving(data);
+            } else if (command == "start_obstacle") {
+                handleStartObstacle();
             } else if (command == "load_maze") {
                 handleLoadMaze(data);
             } else if (command == "abort") {
